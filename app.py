@@ -19,9 +19,11 @@ bootstrap()
 from singer import render
 
 # Optional: HF Spaces ZeroGPU decorator. No-op when not on Spaces.
+# duration kept under 60s — that's the common ZeroGPU per-call cap. Renders
+# at n_steps=32 take ~10-20s on A10G, so this is plenty.
 try:
     import spaces  # type: ignore
-    GPU = spaces.GPU(duration=180)
+    GPU = spaces.GPU(duration=60)
 except ImportError:
     def GPU(fn):  # type: ignore
         return fn
