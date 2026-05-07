@@ -1,0 +1,5 @@
+gradio>=6.0
+g2p_en
+nltk
+# SoulX-Singer is invoked as a subprocess via SOULX_ROOT.
+# On HF Spaces you'll need to bundle SoulX-Singer (heavy weights) — see README.
