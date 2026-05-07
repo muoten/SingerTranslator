@@ -274,9 +274,17 @@ def render(syllables: Sequence[str], n_steps: int | None = None) -> str:
         raise ValueError("provide at least one non-empty syllable")
 
     key = _cache_key(syllables, n_steps)
+    # Layer 1: assets/cache — baked into the repo so popular presets are
+    # served instantly without burning ZeroGPU quota on the first visitor.
+    baked = ASSETS / "cache" / f"{key}_cover.wav"
+    if baked.exists():
+        print(f"[render] baked cache hit: {baked}")
+        return str(baked)
+    # Layer 2: per-container working dir — populated on the fly during the
+    # container's lifetime; resets on rebuild.
     cached = WORK / f"{key}_cover.wav"
     if cached.exists():
-        print(f"[render] cache hit: {cached}")
+        print(f"[render] runtime cache hit: {cached}")
         return str(cached)
 
     job_dir = WORK / key
