@@ -4,7 +4,6 @@ emoji: 🎤
 colorFrom: pink
 colorTo: indigo
 sdk: gradio
-sdk_version: 6.14.0
 app_file: app.py
 pinned: false
 short_description: AIchael sings 4 syllables on Thriller's chorus
