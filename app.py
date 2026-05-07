@@ -99,9 +99,14 @@ with gr.Blocks(title="AIchael Jackson") as demo:
 
 if __name__ == "__main__":
     demo.queue(max_size=int(os.environ.get("SINGER_QUEUE_SIZE", 20))).launch(
-        server_name=os.environ.get("SINGER_HOST", "127.0.0.1"),
+        # HF Spaces requires 0.0.0.0 so the proxy can reach the container.
+        # Override with SINGER_HOST=127.0.0.1 for local-only dev if desired.
+        server_name=os.environ.get("SINGER_HOST", "0.0.0.0"),
         server_port=int(os.environ.get("SINGER_PORT", 7860)),
         share=os.environ.get("SINGER_SHARE", "0") == "1",
+        # SSR is experimental in gradio 6.x; HF's healthcheck doesn't always
+        # play nice with it. Off by default; flip with SINGER_SSR=1.
+        ssr_mode=os.environ.get("SINGER_SSR", "0") == "1",
         theme=gr.themes.Soft(),
         css=CSS,
     )
