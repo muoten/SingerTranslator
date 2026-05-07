@@ -249,23 +249,41 @@ def mix_with_accompaniment(vocal: Path, out_path: Path,
 
 # ---------------- public entry point ---------------------------------------
 
+def _cache_key(syllables: Sequence[str], n_steps: int | None) -> str:
+    """Hash the inputs so repeat renders with identical params skip the GPU.
+
+    Lower-cased and stripped so 'BUE' == 'bue ' for cache purposes.
+    """
+    import hashlib
+    norm = "|".join(s.strip().lower() for s in syllables) + f"::{n_steps}"
+    return hashlib.sha256(norm.encode()).hexdigest()[:16]
+
+
 def render(syllables: Sequence[str], n_steps: int | None = None) -> str:
     """Render `syllables` (e.g. ['bue','nos','di','as']) into a mixed cover wav.
 
     n_steps: CFM diffusion steps. None = SoulX default (32). 8 ≈ 4× faster, 64 ≈ 2× slower.
     Returns absolute path. Caller is responsible for serving / cleaning up.
+
+    Cached: same (syllables, n_steps) returns the previously rendered wav,
+    skipping SoulX entirely. Important on HF ZeroGPU where each call
+    reserves duration against the user's daily quota.
     """
     syllables = [s.strip() for s in syllables if s and s.strip()]
     if not syllables:
         raise ValueError("provide at least one non-empty syllable")
 
-    job = uuid.uuid4().hex[:8]
-    job_dir = WORK / job
-    job_dir.mkdir(parents=True, exist_ok=True)
+    key = _cache_key(syllables, n_steps)
+    cached = WORK / f"{key}_cover.wav"
+    if cached.exists():
+        print(f"[render] cache hit: {cached}")
+        return str(cached)
 
+    job_dir = WORK / key
+    job_dir.mkdir(parents=True, exist_ok=True)
     target_meta = build_target_metadata(syllables, job_dir / "target.json")
     vocal       = soulx_render(target_meta, job_dir / "vocal", n_steps=n_steps)
-    mixed       = mix_with_accompaniment(vocal, job_dir / "cover.wav")
+    mixed       = mix_with_accompaniment(vocal, cached)
     return str(mixed)
 
 
