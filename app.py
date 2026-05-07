@@ -10,6 +10,12 @@ import traceback
 
 import gradio as gr
 
+# Run bootstrap first (idempotent): downloads NLTK data + SoulX weights if
+# missing. On HF Spaces this is the first-boot ~5GB download; on local dev
+# with weights already present it's a no-op.
+from bootstrap_soulx import main as bootstrap
+bootstrap()
+
 from singer import render
 
 # Optional: HF Spaces ZeroGPU decorator. No-op when not on Spaces.

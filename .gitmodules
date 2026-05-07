@@ -1,0 +1,4 @@
+[submodule "vendor/SoulX-Singer"]
+	path = vendor/SoulX-Singer
+	url = https://github.com/muoten/SoulX-Singer.git
+	branch = patch-n-steps-cli

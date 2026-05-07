@@ -1,3 +1,16 @@
+---
+title: AIchael Jackson
+emoji: 🎤
+colorFrom: pink
+colorTo: indigo
+sdk: gradio
+sdk_version: 6.14.0
+app_file: app.py
+pinned: false
+short_description: AIchael sings four syllables of your choice on Thriller chorus
+suggested_hardware: zero-a10g
+---
+
 # SingerTranslator
 
 Translate a *score* (lyrics + melody + voice prompt) into a *sung performance*.

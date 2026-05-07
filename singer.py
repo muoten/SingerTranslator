@@ -26,7 +26,9 @@ from g2p_en import G2p
 
 ROOT = Path(__file__).parent.resolve()
 ASSETS = ROOT / "assets"
-SOULX_ROOT = Path(os.environ.get("SOULX_ROOT", "/Users/milhouse/claude-code/SoulX-Singer"))
+# Default to the bundled submodule. Local dev can override via SOULX_ROOT to
+# reuse an existing install (its venv + downloaded weights).
+SOULX_ROOT = Path(os.environ.get("SOULX_ROOT", str(ROOT / "vendor" / "SoulX-Singer")))
 # Use Python's tempdir by default — Gradio's _check_allowed accepts it on
 # macOS (where /tmp is a symlink that Gradio rejects).
 WORK = Path(os.environ.get("SINGER_WORK_DIR", os.path.join(tempfile.gettempdir(), "singer_renders")))
@@ -42,10 +44,17 @@ PLOSIVES = {"B", "P", "T", "K", "D", "G"}
 # Manual phoneme overrides for known syllables where g2p_en's English-only
 # pronunciation would be wrong (mostly Spanish, but extensible).
 SYLLABLE_OVERRIDES: dict[str, str] = {
+    # buenos dias (Spanish) — g2p_en mispronounces 'nos' and 'as'
     "bue": "en_B-W-EH1",
     "nos": "en_N-OW1-S",
     "di":  "en_D-IY1",
     "as":  "en_AA1-S",
+    # michael jackson — g2p_en treats 'chael' as standalone -> "CHAYL".
+    # Real second syllable of "michael" is K-AH0-L ("kul"). Force it.
+    "mi":    "en_M-IY1",
+    "chael": "en_K-AH0-L",
+    "jack":  "en_JH-AE1-K",
+    "son":   "en_S-AH0-N",
 }
 
 # ---------------- phoneme helpers ------------------------------------------
@@ -163,6 +172,17 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path) -> Path:
 
 # ---------------- SoulX inference ------------------------------------------
 
+def _soulx_python() -> str:
+    """Pick the Python interpreter used to invoke SoulX cli.inference.
+
+    If the SoulX install has its own venv (local dev), use that.
+    Otherwise (HF Spaces, Docker), fall back to the current interpreter.
+    """
+    import sys
+    venv_py = SOULX_ROOT / "venv" / "bin" / "python"
+    return str(venv_py) if venv_py.exists() else sys.executable
+
+
 def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) -> Path:
     """Invoke SoulX cli.inference; returns the produced generated.wav path.
 
@@ -170,9 +190,8 @@ def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) 
     Lower = faster but may degrade audio quality.
     """
     save_dir.mkdir(parents=True, exist_ok=True)
-    venv_py = SOULX_ROOT / "venv" / "bin" / "python"
     cmd = [
-        str(venv_py), "-m", "cli.inference",
+        _soulx_python(), "-m", "cli.inference",
         "--device", "cpu",
         "--model_path", str(SOULX_ROOT / "pretrained_models/SoulX-Singer/model.pt"),
         "--config",     str(SOULX_ROOT / "soulxsinger/config/soulxsinger.yaml"),
