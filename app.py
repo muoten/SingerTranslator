@@ -31,15 +31,31 @@ except ImportError:
 
 
 @GPU
+def _gpu_render(syllables, n_steps):
+    """The GPU-bound part. Wrapped separately so the cache-hit path bypasses
+    @spaces.GPU entirely (otherwise quota is burned even on cache hits)."""
+    return render(syllables, n_steps=n_steps)
+
+
 def go(s1: str, s2: str, s3: str, s4: str, n_steps: int,
        progress: gr.Progress = gr.Progress()):
-    progress(0, desc="building metadata")
+    progress(0, desc="checking cache")
     syllables = [s.strip() for s in (s1, s2, s3, s4) if s and s.strip()]
     if not syllables:
         raise gr.Error("Provide at least one syllable.")
+    n_steps_i = int(n_steps)
+    # Fast path: serve straight from cache (no GPU allocation, no quota).
+    from singer import _cache_key, ASSETS, WORK
+    key = _cache_key(syllables, n_steps_i)
+    for candidate in (ASSETS / "cache" / f"{key}_cover.wav",
+                      WORK / f"{key}_cover.wav"):
+        if candidate.exists():
+            progress(1.0, desc="cache hit")
+            return str(candidate)
+    # Slow path: invoke SoulX (will allocate GPU on Spaces).
     try:
-        progress(0.1, desc=f"invoking SoulX (n_steps={n_steps})")
-        wav = render(syllables, n_steps=int(n_steps))
+        progress(0.1, desc=f"invoking SoulX (n_steps={n_steps_i})")
+        wav = _gpu_render(syllables, n_steps_i)
     except Exception as exc:  # surface SoulX/ffmpeg errors clearly
         traceback.print_exc()
         raise gr.Error(f"Render failed: {exc}") from exc
