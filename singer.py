@@ -183,6 +183,23 @@ def _soulx_python() -> str:
     return str(venv_py) if venv_py.exists() else sys.executable
 
 
+def _detect_device() -> str:
+    """Pick CUDA when available (HF ZeroGPU), else CPU.
+
+    SINGER_DEVICE env var overrides ('cuda' | 'cpu' | 'mps').
+    """
+    forced = os.environ.get("SINGER_DEVICE")
+    if forced:
+        return forced
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except ImportError:
+        pass
+    return "cpu"
+
+
 def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) -> Path:
     """Invoke SoulX cli.inference; returns the produced generated.wav path.
 
@@ -190,9 +207,10 @@ def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) 
     Lower = faster but may degrade audio quality.
     """
     save_dir.mkdir(parents=True, exist_ok=True)
+    device = _detect_device()
     cmd = [
         _soulx_python(), "-m", "cli.inference",
-        "--device", "cpu",
+        "--device", device,
         "--model_path", str(SOULX_ROOT / "pretrained_models/SoulX-Singer/model.pt"),
         "--config",     str(SOULX_ROOT / "soulxsinger/config/soulxsinger.yaml"),
         "--prompt_wav_path",      str(PROMPT_WAV),
@@ -202,6 +220,8 @@ def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) 
         "--save_dir", str(save_dir),
         "--pitch_shift", "0",
     ]
+    if device == "cuda":
+        cmd.append("--fp16")
     if n_steps is not None:
         cmd += ["--n_steps", str(n_steps)]
     subprocess.run(cmd, cwd=str(SOULX_ROOT), check=True)
