@@ -7,7 +7,7 @@ sdk: gradio
 sdk_version: 6.14.0
 app_file: app.py
 pinned: false
-short_description: AIchael sings four syllables of your choice on Thriller chorus
+short_description: AIchael sings 4 syllables on Thriller's chorus
 suggested_hardware: zero-a10g
 ---
 
