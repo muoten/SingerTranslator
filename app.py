@@ -65,8 +65,8 @@ def go(s1: str, s2: str, s3: str, s4: str, n_steps: int,
 
 PRESETS = {
     "bue-nos di-as":     ("bue", "nos", "di", "as"),
-    "mi-chael jack-son": ("mi", "chael", "jack", "son"),
-    "hap-py birth-day":  ("hap", "py", "birth", "day"),
+    "hap-pee birth-day": ("hap", "pee", "birth", "day"),
+    "syn-thet tic-voice": ("syn", "thet", "tic", "voice"),
 }
 
 CSS = """
