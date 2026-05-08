@@ -90,7 +90,7 @@ with gr.Blocks(title="AIchael Jackson") as demo:
         preset_buttons = [gr.Button(label, size="sm") for label in PRESETS]
     with gr.Accordion("🔧 Advanced Settings", open=False):
         n_steps = gr.Slider(
-            minimum=8, maximum=64, value=32, step=1,
+            minimum=8, maximum=64, value=16, step=1,
             label="Diffusion steps (n_steps)",
             info=(
                 "Number of CFM denoising iterations during synthesis. "
