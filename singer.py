@@ -108,15 +108,30 @@ def double_plosive_if_needed(phoneme: str) -> str:
 
 # ---------------- metadata builder -----------------------------------------
 
-def build_target_metadata(syllables: Sequence[str], out_path: Path) -> Path:
+OFF_MELISMA_MIN_DUR = 0.20         # in 'off' mode, slots shorter than this
+                                   # stay as melismas — too short for the model
+                                   # to articulate a fresh syllable cleanly
+
+
+def build_target_metadata(syllables: Sequence[str], out_path: Path,
+                          melisma_mode: str = "default") -> Path:
     """Build a SoulX target_metadata.json by cyclically mapping `syllables`
-    onto the chorus template, preserving notes/durations/melismas.
+    onto the chorus template.
+
+    melisma_mode:
+      'off'     — fresh syllable on every slot >= OFF_MELISMA_MIN_DUR; very
+                  short slots (<0.20s) still get the held vowel because the
+                  model can't articulate a fresh syllable that fast. More
+                  lyric clarity than 'default', less smooth.
+      'default' — honour the metadata's note_type=3 as a held vowel.
 
     The leading-plosive recipe is applied only to slot-1 (first sung note),
     not to every recurrence — that's where short+high articulation is hardest.
     """
     if len(syllables) == 0:
         raise ValueError("need at least one syllable")
+    if melisma_mode not in ("off", "default"):
+        raise ValueError(f"unknown melisma_mode {melisma_mode!r}")
 
     template = json.loads(TEMPLATE.read_text())
     item = template[0]
@@ -127,6 +142,7 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path) -> Path:
 
     note_pitch = _split("note_pitch")
     note_type  = _split("note_type")
+    durations  = [float(d) for d in _split("duration")]
 
     phonemes = [syllable_to_phoneme(s) for s in syllables]
     held     = [held_form(p) for p in phonemes]
@@ -147,9 +163,21 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path) -> Path:
             last_idx = None
             continue
 
-        if ntype == 3 and last_idx is not None:
+        # Decide whether this slot is a melisma (held vowel of the previous
+        # syllable) or a fresh syllable, based on melisma_mode.
+        force_melisma = (
+            ntype == 3 and melisma_mode != "off" and last_idx is not None
+        ) or (
+            # 'off' mode still keeps very-short slots as melismas — too fast
+            # for a fresh syllable to articulate cleanly.
+            melisma_mode == "off" and last_idx is not None
+            and durations[i] < OFF_MELISMA_MIN_DUR
+        )
+
+        if force_melisma:
             new_text.append(syllables[last_idx] + "_")
             new_phon.append(held[last_idx])
+            new_ntype[i] = "3"
             continue
 
         idx = cycle_idx % len(syllables)
@@ -249,31 +277,38 @@ def mix_with_accompaniment(vocal: Path, out_path: Path,
 
 # ---------------- public entry point ---------------------------------------
 
-def _cache_key(syllables: Sequence[str], n_steps: int | None) -> str:
+def _cache_key(syllables: Sequence[str], n_steps: int | None,
+               melisma_mode: str = "default") -> str:
     """Hash the inputs so repeat renders with identical params skip the GPU.
 
     Lower-cased and stripped so 'BUE' == 'bue ' for cache purposes.
+    melisma_mode is only included when not 'default' so existing baked
+    caches (which used the implicit default) stay valid.
     """
     import hashlib
     norm = "|".join(s.strip().lower() for s in syllables) + f"::{n_steps}"
+    if melisma_mode != "default":
+        norm += f"::{melisma_mode}"
     return hashlib.sha256(norm.encode()).hexdigest()[:16]
 
 
-def render(syllables: Sequence[str], n_steps: int | None = None) -> str:
+def render(syllables: Sequence[str], n_steps: int | None = None,
+           melisma_mode: str = "default") -> str:
     """Render `syllables` (e.g. ['bue','nos','di','as']) into a mixed cover wav.
 
     n_steps: CFM diffusion steps. None = SoulX default (32). 8 ≈ 4× faster, 64 ≈ 2× slower.
+    melisma_mode: 'off' | 'default' | 'long' — see build_target_metadata.
     Returns absolute path. Caller is responsible for serving / cleaning up.
 
-    Cached: same (syllables, n_steps) returns the previously rendered wav,
-    skipping SoulX entirely. Important on HF ZeroGPU where each call
-    reserves duration against the user's daily quota.
+    Cached: same (syllables, n_steps, melisma_mode) returns the previously
+    rendered wav, skipping SoulX entirely. Important on HF ZeroGPU where each
+    call reserves duration against the user's daily quota.
     """
     syllables = [s.strip() for s in syllables if s and s.strip()]
     if not syllables:
         raise ValueError("provide at least one non-empty syllable")
 
-    key = _cache_key(syllables, n_steps)
+    key = _cache_key(syllables, n_steps, melisma_mode)
     # Layer 1: assets/cache — baked into the repo so popular presets are
     # served instantly without burning ZeroGPU quota on the first visitor.
     baked = ASSETS / "cache" / f"{key}_cover.wav"
@@ -289,7 +324,8 @@ def render(syllables: Sequence[str], n_steps: int | None = None) -> str:
 
     job_dir = WORK / key
     job_dir.mkdir(parents=True, exist_ok=True)
-    target_meta = build_target_metadata(syllables, job_dir / "target.json")
+    target_meta = build_target_metadata(syllables, job_dir / "target.json",
+                                        melisma_mode=melisma_mode)
     vocal       = soulx_render(target_meta, job_dir / "vocal", n_steps=n_steps)
     mixed       = mix_with_accompaniment(vocal, cached)
     return str(mixed)
