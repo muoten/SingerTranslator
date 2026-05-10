@@ -239,11 +239,12 @@ def _detect_device() -> str:
     return "cpu"
 
 
-def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) -> Path:
+def soulx_render(target_meta: Path, save_dir: Path,
+                 n_steps: int | None = None, seed: int | None = None) -> Path:
     """Invoke SoulX cli.inference; returns the produced generated.wav path.
 
     n_steps: number of CFM diffusion steps. None = use config default (32).
-    Lower = faster but may degrade audio quality.
+    seed:    pins PyTorch RNG for reproducible renders. None = stochastic.
     """
     save_dir.mkdir(parents=True, exist_ok=True)
     device = _detect_device()
@@ -263,6 +264,8 @@ def soulx_render(target_meta: Path, save_dir: Path, n_steps: int | None = None) 
         cmd.append("--fp16")
     if n_steps is not None:
         cmd += ["--n_steps", str(n_steps)]
+    if seed is not None:
+        cmd += ["--seed", str(seed)]
     subprocess.run(cmd, cwd=str(SOULX_ROOT), check=True)
     out = save_dir / "generated.wav"
     if not out.exists():
@@ -304,7 +307,7 @@ def _cache_key(syllables: Sequence[str], n_steps: int | None,
 
 
 def render(syllables: Sequence[str], n_steps: int | None = None,
-           melisma_mode: str = "default") -> str:
+           melisma_mode: str = "default", seed: int | None = None) -> str:
     """Render `syllables` (e.g. ['bue','nos','di','as']) into a mixed cover wav.
 
     n_steps: CFM diffusion steps. None = SoulX default (32). 8 ≈ 4× faster, 64 ≈ 2× slower.
@@ -337,7 +340,8 @@ def render(syllables: Sequence[str], n_steps: int | None = None,
     job_dir.mkdir(parents=True, exist_ok=True)
     target_meta = build_target_metadata(syllables, job_dir / "target.json",
                                         melisma_mode=melisma_mode)
-    vocal       = soulx_render(target_meta, job_dir / "vocal", n_steps=n_steps)
+    vocal       = soulx_render(target_meta, job_dir / "vocal",
+                                n_steps=n_steps, seed=seed)
     mixed       = mix_with_accompaniment(vocal, cached)
     return str(mixed)
 
