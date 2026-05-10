@@ -111,6 +111,10 @@ def double_plosive_if_needed(phoneme: str) -> str:
 OFF_MELISMA_MIN_DUR = 0.20         # in 'off' mode, slots shorter than this
                                    # stay as melismas — too short for the model
                                    # to articulate a fresh syllable cleanly
+DEFAULT_AUTO_MELISMA_DUR = 0.30    # in 'default' mode, also auto-melisma slots
+                                   # below this — protects against the smearing
+                                   # effect on fast slots while keeping the
+                                   # metadata's natural note_type=3 melismas.
 
 
 def build_target_metadata(syllables: Sequence[str], out_path: Path,
@@ -119,11 +123,12 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path,
     onto the chorus template.
 
     melisma_mode:
-      'off'     — fresh syllable on every slot >= OFF_MELISMA_MIN_DUR; very
-                  short slots (<0.20s) still get the held vowel because the
-                  model can't articulate a fresh syllable that fast. More
-                  lyric clarity than 'default', less smooth.
-      'default' — honour the metadata's note_type=3 as a held vowel.
+      'off'     — fresh syllable on every slot >= OFF_MELISMA_MIN_DUR (0.20s);
+                  very short slots still get the held vowel because the model
+                  can't articulate a fresh syllable that fast. More lyric
+                  clarity, less smooth.
+      'default' — honour the metadata's note_type=3 as a held vowel, AND
+                  auto-melisma any slot below DEFAULT_AUTO_MELISMA_DUR (0.25s).
 
     The leading-plosive recipe is applied only to slot-1 (first sung note),
     not to every recurrence — that's where short+high articulation is hardest.
@@ -172,6 +177,12 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path,
             # for a fresh syllable to articulate cleanly.
             melisma_mode == "off" and last_idx is not None
             and durations[i] < OFF_MELISMA_MIN_DUR
+        ) or (
+            # 'default' mode auto-melismas slots below the higher threshold,
+            # protecting against the smearing on fine-grained metadata while
+            # still honouring metadata note_type=3 above.
+            melisma_mode == "default" and last_idx is not None
+            and durations[i] < DEFAULT_AUTO_MELISMA_DUR
         )
 
         if force_melisma:
