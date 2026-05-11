@@ -55,6 +55,10 @@ SYLLABLE_OVERRIDES: dict[str, str] = {
     "chael": "en_K-AH0-L",
     "jack":  "en_JH-AE1-K",
     "son":   "en_S-AH0-N",
+    # happy birthday — g2p_en gives 'hap' -> HH-AE1-P, which combined with
+    # the following 'pee' (P-IY1) produces a double-P that doesn't sound
+    # like "happy" (/ˈhæpi/ has one P, owned by the second syllable).
+    "hap":   "en_HH-AE1",
 }
 
 # ---------------- phoneme helpers ------------------------------------------
@@ -194,8 +198,15 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path,
         idx = cycle_idx % len(syllables)
         new_text.append(syllables[idx])
         if not first_fresh_done:
-            new_phon.append(double_plosive_if_needed(phonemes[idx]))
-            first_fresh_done = True
+            candidate = double_plosive_if_needed(phonemes[idx])
+            new_phon.append(candidate)
+            # Only consume the "first plosive" slot if doubling actually
+            # fired. When slot-1's syllable has no plosive lead (e.g. 'hap'
+            # in happy-birthday), the recipe should still apply to the next
+            # fresh plosive-leading slot — that's where the short+high
+            # plosive risk actually lands.
+            if candidate != phonemes[idx]:
+                first_fresh_done = True
         else:
             new_phon.append(phonemes[idx])
         last_idx = idx
