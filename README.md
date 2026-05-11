@@ -13,161 +13,181 @@ suggested_hardware: zero-a10g
 
 # SingerTranslator
 
-Translate a *score* (lyrics + melody + voice prompt) into a *sung performance*.
+Custom lyrics on a fixed melody sung by a target voice — a control surface
+most music AIs don't expose. This repo is the rendering pipeline behind the
+**AIchael Jackson** demo at [aichaeljackson.com](https://aichaeljackson.com)
+(HF Space: [muoten/aichael-jackson](https://huggingface.co/spaces/muoten/aichael-jackson)).
 
-Music generators invent the song. **SingerTranslator renders one you specify.**
-You pick the lyrics, you pick the melody (MIDI/F0), you pick the voice; the
-model produces the singing audio.
+You type 4 syllables. The pipeline:
 
-This is the user-controlled-composition workflow on top of
-[SoulX-Singer](https://github.com/Soul-AILab/SoulX-Singer) running locally.
-It includes the helpers and recipes we found necessary to make English work.
+1. Loads a frozen *score* (notes + timing) extracted from MJ's actual Thriller
+   chorus via [Demucs](https://github.com/facebookresearch/demucs) +
+   [Whisper](https://github.com/openai/whisper) +
+   [ROSVOT](https://github.com/RickyL-2000/ROSVOT) preprocessing.
+2. Cycles your 4 syllables across the 36 sung slots of the chorus, preserving
+   notes, durations, and held-vowel melismas.
+3. Asks [SoulX-Singer](https://github.com/Soul-AILab/SoulX-Singer) to
+   synthesize the voice using a clip of MJ's actual chorus as the timbre
+   prompt (so the resulting voice sounds like MJ).
+4. Mixes the synthesized vocal with the original Thriller accompaniment.
+
+Result: 16 seconds of synthetic cover with your syllables on MJ's chorus.
 
 ## Why this exists
 
-ACE-Step v1.5 cover-gen, Voicify (Demucs+RVC+ACE-Step), and SoulX SVC mode
-all failed to deliver "custom lyrics on a custom melody in a chosen voice".
-The first three either had no F0 channel or locked you into the target's
-lyrics. SoulX **SVS** mode does have F0/MIDI input — but only when used
-locally with hand-built metadata. That's what this repo wraps.
+Most music AIs operate on raw audio and give you no symbolic handle on the
+melody:
 
-Validated 2026-05-05: produced clean English singing of the lyric "Who says
-you're not broken" on a chosen melody with hard-K plosive. First time the
-pipeline clicked end-to-end.
+- **Suno / Udio / ACE-Step** — let you provide lyrics, but the model invents
+  the melody and arrangement.
+- **RVC / So-VITS / voice cloning** — let you swap timbre on existing audio,
+  but lyrics and melody stay the originals.
 
-## Layout
+Only two tools accept symbolic input (notes + lyrics) and synthesize singing
+on top:
+
+- **[ACE-Studio](https://acestudio.ai)** — commercial DAW-style editor;
+  closed, no custom voice references.
+- **[SoulX-Singer](https://github.com/Soul-AILab/SoulX-Singer)** (ACL'24) —
+  open source, accepts any audio as a timbre reference. That's the unlock
+  that makes voice cloning + lyric/melody control composable in a pipeline.
+  This repo wraps SoulX as that pipeline.
+
+## Demo (no install needed)
+
+Visit [aichaeljackson.com](https://aichaeljackson.com) → type 4 syllables →
+hit "Make AIchael sing it". Presets: `bue-nos di-as`, `hap-pee birth-day`,
+`syn-thet tic-voice`. ~15s per render on the Space's GPU.
+
+## Local install
+
+```bash
+git clone --recursive https://github.com/muoten/SingerTranslator.git
+cd SingerTranslator
+pip install -r requirements.txt
+python bootstrap_soulx.py    # downloads SoulX weights + NLTK corpora (~5GB)
+python app.py                # local Gradio at http://127.0.0.1:7860
+```
+
+CPU works (~2 min per render). For GPU pass `SINGER_DEVICE=cuda` (auto-detected
+on HF Spaces).
+
+## How it works internally
+
+### Pipeline at runtime
+
+```
+[user types 4 syllables]
+        |
+        | singer.build_target_metadata()
+        |   - g2p_en → phonemes per syllable
+        |   - SYLLABLE_OVERRIDES for known Spanish syllables
+        |   - apply double-plosive recipe to slot 1
+        |   - assign syllables cyclically to 36 slots
+        |   - auto-melisma slots shorter than 0.30s
+        v
+[target_metadata.json]
+        |
+        | singer.soulx_render()  →  SoulX CLI inference
+        |   - prompt_wav: assets/prompt.wav (MJ chorus 121.5-135.5s)
+        |   - prompt_metadata: assets/prompt.json
+        |   - target_metadata: above
+        |   - --n_steps 16, --seed 100, --pitch_shift 0
+        v
+[generated.wav]  (16s sung vocal)
+        |
+        | ffmpeg mix with assets/accompaniment.wav
+        v
+[cover.wav]
+```
+
+### Score data (frozen)
+
+The chorus score in `assets/chorus_target.json` was built once and ships with
+the repo. It came from:
+
+1. `vocals.wav` of Thriller, isolated by Demucs.
+2. Slice 120-136s (the chorus instance we picked).
+3. Whisper-large transcribed the words; ROSVOT transcribed the notes.
+4. SoulX preprocess merged them into 34 slots.
+5. Manual surgical fix: split one over-merged 1.66s "thriller" slot into 3
+   (B4 fresh, rest, B4 fresh) and demoted two spurious melismas. Final: 36
+   slots in `chorus_target.json`.
+
+The timbre prompt `assets/prompt.wav` is the same chorus offset by 1.5s
+(121.5-135.5s) to avoid an audio-leakage failure mode in SoulX where the
+output mimics the prompt audio when prompt and target derive from the same
+clip.
+
+### Tunable parameters
+
+`singer.render()` exposes:
+
+- `syllables: list[str]` — the 4 syllables.
+- `n_steps: int` — CFM diffusion steps (default 16). Lower = faster, rougher.
+- `melisma_mode: 'off' | 'default'` — whether to honour the metadata's tied
+  notes as held vowels (default) or force every slot to fresh syllable (off).
+- `seed: int | None` — pinned `torch.manual_seed` for reproducible audio.
+
+The shipped buenos dias preset uses `seed=100`, picked from a 5-seed sweep
+scored on coverage × phonetic similarity against a Whisper unprompted
+transcription.
+
+### Phonetic learnings (English g2p approximating Spanish)
+
+- **Plosives in short slots get swallowed** — double the leading consonant
+  via the override (e.g. `bue` → `en_B-B-W-EH1`). Recipe is auto-applied to
+  slot 1 only.
+- **L coda on high notes drops** — `sole` becomes "soy". Fix: split the word
+  across two slots so L moves to onset position (`soh / lee`).
+- **`SYLLABLE_OVERRIDES`** in `singer.py` pins g2p_en's output for known
+  Spanish syllables it would otherwise mispronounce (e.g. `nos` → `N-OW1-S`
+  instead of g2p_en's `N-AA1-S`).
+
+### Intelligibility metric
+
+Whisper-prompted transcription is biased and can produce confident text on
+audio that's actually noise. Honest signal comes from **unprompted Whisper +
+phoneme-level Levenshtein** against the target. See the variant-sweep
+discussion in `feedback_preferences.md` for the methodology.
+
+## Repo layout
 
 ```
 .
-├── README.md           — this
-├── swap_word.py        — replace word X with word Y in metadata
-│                         (auto regenerates phoneme via g2p_en)
-│                         supports --phoneme override + --duration_boost
-├── split_word.py       — replace one word slot with N consecutive slots
-│                         (used to test mid-word splits; PROVED WORSE)
-├── scripts/
-│   └── sing.sh         — wrapper around SoulX-Singer SVS inference
-└── examples/           — outputs we want to keep around
+├── app.py                       — Gradio UI (the demo)
+├── singer.py                    — render() + build_target_metadata()
+├── bootstrap_soulx.py           — downloads weights + NLTK on first run
+├── build_buenos_dias.py         — script that built the buenos dias metadata
+├── run_preproc_with_whisper.py  — full preproc (Demucs+Whisper+ROSVOT)
+├── swap_word.py                 — legacy: replace a word in metadata
+├── split_word.py                — legacy: split a word across slots
+├── scripts/sing.sh              — SoulX CLI wrapper
+├── assets/
+│   ├── chorus_target.json       — frozen 36-slot Thriller chorus score
+│   ├── prompt.wav               — MJ chorus 121.5-135.5s (timbre prompt)
+│   ├── prompt.json              — matching metadata for prompt.wav
+│   ├── accompaniment.wav        — Thriller chorus instrumental (16s)
+│   └── cache/                   — baked preset outputs
+├── data/                        — backup copies of frozen metadata
+├── vendor/SoulX-Singer/         — submodule: muoten fork with --n_steps + --seed
+└── examples/                    — milestone outputs from the build history
 ```
 
-## Prerequisites
+## Submodule patches
 
-You need SoulX-Singer locally with weights downloaded. See
-`project_english_singing_synthesis.md` in the auto-memory for the full install
-path. Briefly:
+`vendor/SoulX-Singer` is pinned to the `patch-n-steps-cli` branch of
+[muoten/SoulX-Singer](https://github.com/muoten/SoulX-Singer), which adds two
+flags to `cli/inference.py`:
 
-```bash
-cd ~/claude-code
-git clone https://github.com/Soul-AILab/SoulX-Singer.git
-cd SoulX-Singer
-/Users/milhouse/.pyenv/versions/3.10.16/bin/python3.10 -m venv venv
-venv/bin/pip install -r requirements.txt
-mkdir pretrained_models && venv/bin/hf download Soul-AILab/SoulX-Singer \
-    --local-dir pretrained_models/SoulX-Singer
-venv/bin/python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng'); nltk.download('cmudict')"
-```
+- `--n_steps` — overrides `config.infer.n_steps` for the CFM solver.
+- `--seed` — calls `torch.manual_seed` (+ numpy + random + cuda) for
+  reproducible renders.
 
-CPU-only on Mac (MPS broken in the vocoder, see memory notes). ~5x realtime.
+Otherwise it tracks upstream `Soul-AILab/SoulX-Singer`.
 
-## Workflow
+## License
 
-```
-[ source metadata.json ]
-        |
-        | swap_word.py / split_word.py     (edit lyrics, phonemes, durations)
-        |
-        v
-[ edited metadata.json ]
-        |
-        | scripts/sing.sh                  (run SoulX SVS inference)
-        |
-        v
-[ generated.wav ]                          a sung performance
-```
-
-## Quick start: word swap example
-
-Take SoulX's shipped `en_target.json` (the "Who says you're not pretty" song),
-swap "pretty" → "broken" with the hard-K recipe, and synthesize:
-
-```bash
-SOULX=~/claude-code/SoulX-Singer
-PY=$SOULX/venv/bin/python
-
-# 1. Edit the metadata (apply the triple-K plosive recipe + duration boost)
-$PY swap_word.py \
-    --in $SOULX/example/audio/en_target.json \
-    --out /tmp/en_broken.json \
-    --old pretty --new broken \
-    --phoneme 'en_B-R-OW1-K-K-K-AH0-N' \
-    --duration_boost 0.20
-
-# 2. Synthesize
-scripts/sing.sh \
-    $SOULX/example/audio/en_prompt.mp3 \
-    $SOULX/example/audio/en_prompt.json \
-    /tmp/en_broken.json \
-    /tmp/sung_broken
-
-# 3. Listen
-afplay /tmp/sung_broken/generated.wav
-```
-
-## Recipes
-
-### English plosives are weak — use the triple-phone trick
-
-The model has only 70 English phonemes vs ~2700 Chinese. English K/P/T
-articulation is poor by default. Workaround: triple the plosive in the
-phoneme override, with a moderate duration boost.
-
-| Word | Phoneme override |
-|---|---|
-| broken | `en_B-R-OW1-K-K-K-AH0-N` |
-| pretty | `en_P-P-P-R-IH1-T-T-T-IY0` (untested but follows the pattern) |
-| broken (verified)  | tested 2026-05-05, produces hard K |
-
-Validated trade-off (2026-05-05):
-- Less than 3 K-phones: K is dropped or sounds soft
-- More than 3 K-phones (4K, 5K): per-phone time falls below ~50ms, K
-  collapses to a vowel transition
-- Boost much beyond +0.20s: K → G voicing leak (closure gets filled with
-  vocal-fold vibration from neighboring vowels — Chinese-prior unaspirated
-  stops dominate)
-
-The sweet spot is **3 K-phones at ~56ms each** in a slot ~0.45s long.
-
-### Sonorants are fine
-
-Words like "lovely", "morning", "shining" come out clean without any tricks.
-Lyric-engineer toward sonorants when you can.
-
-### Slot-splitting is worse
-
-`split_word.py` tested mid-word splitting like "broken" → "brok" + "ken"
-(2 slots with K at the slot boundary). The hypothesis was that `<EOW>`/`<BOW>`
-markers would force harder articulation. **It didn't work** — each piece
-got too little time, model isn't trained on mid-word slot splits. Kept the
-script around for future experimentation but the single-slot triple-phone
-recipe is what's been validated.
-
-## Status (2026-05-05)
-
-- ✅ Local install verified
-- ✅ Lyric swap + phoneme override + duration boost working (`swap_word.py`)
-- ✅ "broken benchmark" achieved with 3K + boost20 recipe
-- ⏳ User's voice prompt (Shana clip) — needs prompt_metadata generation
-  via SoulX preprocess pipeline (extra model downloads)
-- ⏳ User's actual Thriller MIDI integration — currently using
-  en_target's melody as the surrogate
-- ⏳ Generalize plosive recipe to P, T (untested)
-
-## What it isn't
-
-- **Not a music generator** — doesn't invent songs from prompts
-- **Not a karaoke maker** — doesn't separate voices from existing recordings
-- **Not a voice cloner alone** — that's what RVC and SoulX SVC do; this
-  controls more (lyrics + melody + voice, not just voice)
-
-It's the rendering step of a composition pipeline. You bring the score,
-SingerTranslator brings the singer.
+Code under MIT. The `assets/prompt.wav`, `assets/accompaniment.wav`, and
+cached preset wavs are derivatives of Michael Jackson's "Thriller" and are
+included for demonstration purposes only.
