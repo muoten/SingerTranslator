@@ -59,6 +59,13 @@ SYLLABLE_OVERRIDES: dict[str, str] = {
     # the following 'pee' (P-IY1) produces a double-P that doesn't sound
     # like "happy" (/ˈhæpi/ has one P, owned by the second syllable).
     "hap":   "en_HH-AE1",
+    # llueve mucho (Spanish) — g2p_en treats these as English which loses
+    # the Castilian phonology entirely:
+    #   'llue' -> L-UW1 (= "loo") drops the palatal — should be /jwe/
+    #   've'   -> V-IY1 (= "vee") uses English /v/ — Spanish v=/b/
+    # 'mu' and 'cho' happen to round-trip OK via g2p_en (M-UW1, CH-OW1).
+    "llue": "en_Y-W-EH1",   # Y = English /j/ — closest ARPABET to Castilian /jwe/
+    "ve":   "en_B-EH1",     # Spanish /be/
 }
 
 # ---------------- phoneme helpers ------------------------------------------
