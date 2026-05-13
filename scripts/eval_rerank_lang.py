@@ -57,7 +57,12 @@ ENGLISH_EQUIV = {
     "aʊ": {"aʊ", "au", "ɑʊ"},
     "eɪ": {"eɪ", "e", "ei", "eː"},
     "ɛ":  {"ɛ", "e", "ɪ"}, "ɪ":  {"ɪ", "i"},
-    "ɹ":  {"ɹ", "r", "ɾ"}, "ɝ": {"ɝ", "ɚ", "ɹ", "ə", "ʌ"},
+    "ɹ":  {"ɹ", "r", "ɾ"},
+    # /ɝ/ stays strict-rhotic. Earlier we accepted /ə/ and /ʌ/ for sung
+    # de-rhoticization, but it caused phantom "birth" matches on bare
+    # /p ʌ s/ syllables. Singer must actually produce an r-colour for
+    # /ɝ/-bearing words ("birth", "her", etc.) to score.
+    "ɝ":  {"ɝ", "ɚ", "ɹ"},
     "θ":  {"θ", "s", "f", "ð"},
 }
 
