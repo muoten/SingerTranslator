@@ -65,6 +65,7 @@ def go(s1: str, s2: str, s3: str, s4: str, n_steps: int, melisma_mode: str,
 
 PRESETS = {
     "bue-nos di-as":     ("bue", "nos", "di", "as"),
+    "bue-nas tar-des":   ("bue", "nas", "tar", "des"),
     "hap-pee birth-day": ("hap", "pee", "birth", "day"),
     "llue-ve mu-cho":    ("llue", "ve", "mu", "cho"),
     "syn-thet tic-voice": ("syn", "thet", "tic", "voice"),

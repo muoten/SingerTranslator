@@ -1,11 +1,18 @@
 """Render a phrase across multiple seeds at a chosen melisma threshold,
-bypassing singer.render's cache.
+bypassing BOTH singer.render's runtime cache AND the baked preset cache.
 
-singer.render keys its cache only on (syllables, n_steps, melisma_mode) —
-seed AND melisma threshold are excluded. So back-to-back calls would hit
-the cache after the first render. This script clears the matching cache
-entry between renders to force fresh runs, and patches
-singer.DEFAULT_AUTO_MELISMA_DUR so the chosen threshold actually applies.
+singer.render has two cache layers, both keyed on
+(syllables, n_steps, melisma_mode) only — seed AND melisma threshold are
+excluded:
+  Layer 1 (baked): assets/cache/<key>_cover.wav — checked FIRST, short-
+                   circuits with no SoulX invocation. If the phrase has a
+                   baked preset, EVERY seed/threshold returns the same file.
+  Layer 2 (runtime): /var/folders/.../singer_renders/<key>* — populated
+                     per container lifetime.
+
+This script clears Layer 2 between renders and temporarily moves the
+Layer 1 file aside (then restores it) so each render is genuinely fresh
+at the requested seed and threshold.
 
 Output filenames encode (syllables, threshold, seed) so different threshold
 sweeps don't overwrite each other:
@@ -19,21 +26,44 @@ Example:
 from __future__ import annotations
 import shutil
 import sys
+import contextlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import singer
 
 CACHE_DIR = Path("/var/folders/kp/b53jtvb57nv_hkqnj76mdd2w0000gn/T/singer_renders")
+BAKED_DIR = Path(singer.__file__).parent / "assets" / "cache"
 N_STEPS = 16
 
 
-def clear_cache(key: str):
+def clear_runtime_cache(key: str):
     for p in CACHE_DIR.glob(f"{key}*"):
         if p.is_dir():
             shutil.rmtree(p, ignore_errors=True)
         else:
             p.unlink(missing_ok=True)
+
+
+@contextlib.contextmanager
+def baked_aside(key: str):
+    """Temporarily rename baked preset out of the way; restore on exit.
+
+    Without this, singer.render returns the baked file immediately and
+    SoulX is never invoked — every seed/threshold produces identical
+    output. The .bak suffix is restored even if rendering fails.
+    """
+    baked = BAKED_DIR / f"{key}_cover.wav"
+    parked = BAKED_DIR / f"{key}_cover.wav.SWEEP_PARKED"
+    moved = False
+    if baked.exists():
+        baked.rename(parked)
+        moved = True
+    try:
+        yield
+    finally:
+        if moved and parked.exists():
+            parked.rename(baked)
 
 
 def main():
@@ -50,13 +80,14 @@ def main():
     key = singer._cache_key(syllables, N_STEPS, "default")  # type: ignore[attr-defined]
     print(f"Cache key: {key}  syllables={syllables}  thr={thr}")
 
-    for seed in seeds:
-        clear_cache(key)
-        print(f"\n=== {thr_tag} seed={seed} ===", flush=True)
-        wav = singer.render(syllables, n_steps=N_STEPS, seed=seed)
-        dst = Path(f"/Users/milhouse/Downloads/aichael_{phrase_tag}_HYPOTHESIS_{thr_tag}_seed{seed}.wav")
-        shutil.copy(wav, dst)
-        print(f"  → {dst}")
+    with baked_aside(key):
+        for seed in seeds:
+            clear_runtime_cache(key)
+            print(f"\n=== {thr_tag} seed={seed} ===", flush=True)
+            wav = singer.render(syllables, n_steps=N_STEPS, seed=seed)
+            dst = Path(f"/Users/milhouse/Downloads/aichael_{phrase_tag}_HYPOTHESIS_{thr_tag}_seed{seed}.wav")
+            shutil.copy(wav, dst)
+            print(f"  → {dst}")
 
 
 if __name__ == "__main__":

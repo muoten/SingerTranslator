@@ -6,7 +6,7 @@ Two language configs:
                /z/ → /θ/, /v/ → /b/, /h/ silent, /ll/ → /ʎ/)
 
 Per-phrase config selects which language to use. Drop-in compatible
-with the singing-aware K=0 adjacency + 0.3·w1 + 0.7·mean F1 framework.
+with the singing-aware K=0 adjacency + equal-weight 4-window mean.
 
 Local-only. Doesn't modify singer.py or app.py — those still default
 to English. Wiring `lang` through to render is a follow-up.
@@ -147,6 +147,13 @@ SPANISH_SYLLABLES = {
     # llueve mucho
     "mu":  ["m", "u"],
     "cho": ["tʃ", "o"],
+    # buenas tardes
+    "nas": ["n", "a", "s"],
+    "tar": ["t", "a", "ɾ"],
+    "des": ["d", "e", "s"],
+    # buenas noches  (bue & nas reused)
+    "no":  ["n", "o"],
+    "ches":["tʃ", "e", "s"],
 }
 
 # Per-syllable alternative IPA targets. Tried only when the primary
@@ -165,6 +172,18 @@ SPANISH_SYLLABLE_ALTERNATIVES: dict[str, list[list[str]]] = {
     # Scoped to "mu" only: adding /p/ to global m-EQUIV would falsely
     # credit /pa/ as "ma" and /po/ as "mo" in mola_mazo.
     "mu":  [["p", "u"], ["b", "u"]],
+    # llue — data-driven alternatives from user-labeled audio (2026-05-14).
+    # In ear-confirmed "llueve" renders wav2vec2 emits these palatal-onset
+    # patterns. The /w/ glide and final /e/ are often inaudible / cut by
+    # the 4-second window boundary, but the palatal-vowel onset is the
+    # ear-cue Spanish listeners use. Per-syllable scoping: no other
+    # current preset contains "llue", so phantom risk is zero.
+    "llue": [
+        ["j", "ɑ"],    # observed: dʒ ɑ
+        ["j", "o"],    # back-rounded variant
+        ["j", "iɛ"],   # observed: j iɛ5
+        ["j", "iou"],  # observed: j iou2 (×2 in seed=4 thr=0.20)
+    ],
 }
 
 LANG_CONFIGS = {
@@ -301,33 +320,54 @@ def expected_syllables_for_window(slots, w_start, w_end, lang):
     return out
 
 
-def syllable_completion(hyp, expected_list, lang_cfg):
+def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
     """Greedy in-order match. Recall credits the LONGEST CONTIGUOUS RUN in
-    UNIQUE-TYPE space.
+    UNIQUE-TYPE space, normalized against the PHRASE's unique-syllable
+    count (constant across windows and thresholds) — not the per-window
+    expected_list's unique count, which varies and creates threshold bias.
 
     Rationale: matches that cover {ve, cho} but skip mu indicate the audio
     rendered the wrong sub-phrase. Matches that cover {mu, cho} are the
     correct end-of-phrase sub-sequence. Cycling melisma where one type
     appears multiple times (e.g. ve, ve, ve) is NOT penalized — repetition
     of a single unique type is still a length-1 contiguous run.
+
+    Threshold-bias fixes (in order):
+    1. Dedupe expected_list to first occurrence of each unique syllable
+       type. Low-melisma thresholds (thr=0.20) cycled the list — each type
+       gets ONE shot, same fairness across thresholds.
+    2. Recall denominator is `phrase_unique_count` (constant=4 for
+       4-syllable phrases), NOT len(per-window expected_unique). The
+       old per-window denominator shrank at higher thresholds (because
+       fewer fresh syllables fit per window with longer slots), which
+       inflated recall artificially at thr=0.40.
     """
+    seen: set[str] = set()
+    expected_unique = []
+    for name, target in expected_list:
+        if name not in seen:
+            seen.add(name)
+            expected_unique.append((name, target))
+
     pos = 0
     per_syl = []  # (expected_idx, consumed_tokens, name)
-    for idx, (name, target) in enumerate(expected_list):
+    for idx, (name, target) in enumerate(expected_unique):
         nxt, cons = find_syllable(hyp, name, target, pos, lang_cfg)
         if nxt != -1:
             per_syl.append((idx, cons, name))
             pos = nxt
 
-    # Map each unique syllable name to a sequence index by first appearance.
-    type_to_idx: dict[str, int] = {}
-    for name, _ in expected_list:
-        if name not in type_to_idx:
-            type_to_idx[name] = len(type_to_idx)
-    total_unique = len(type_to_idx)
+    total_unique = phrase_unique_count  # constant across windows + thresholds
 
     if not per_syl:
         return 0, total_unique, 0, []
+
+    # Build a mapping from name → seq index based on the window's expected
+    # order (so "contiguous run" still respects local syllable ordering).
+    type_to_idx: dict[str, int] = {}
+    for name, _ in expected_unique:
+        if name not in type_to_idx:
+            type_to_idx[name] = len(type_to_idx)
 
     # Sorted distinct unique-type indices touched by matches.
     matched_uniq = sorted({type_to_idx[name] for _, _, name in per_syl})
@@ -383,7 +423,7 @@ def w2v_phon(proc, mdl, chunk, sr=16000):
     return proc.batch_decode([ids])[0].strip()
 
 
-def score(proc, mdl, wav, slots, lang):
+def score(proc, mdl, wav, slots, lang, phrase_unique_count):
     cfg = LANG_CONFIGS[lang]
     audio, sr = sf.read(str(wav), dtype="float32")
     if audio.ndim > 1: audio = audio.mean(axis=1)
@@ -398,7 +438,7 @@ def score(proc, mdl, wav, slots, lang):
         chunk = audio[s_idx:e_idx]
         hyp = normalize_hyp_tokens(w2v_phon(proc, mdl, chunk, sr).split())
         exp_sylls = expected_syllables_for_window(slots, ws, we, lang)
-        found, total, consumed, names = syllable_completion(hyp, exp_sylls, cfg)
+        found, total, consumed, names = syllable_completion(hyp, exp_sylls, cfg, phrase_unique_count)
         recall = found / max(total, 1)
         precision = consumed / max(len(hyp), 1)
         f1 = 2 * recall * precision / (recall + precision) if (recall + precision) > 0 else 0.0
@@ -426,6 +466,10 @@ PHRASES = {
                         # Old `aichael_llueve_mucho_thr*_seed*.wav` pool was
                         # built with broken English phonemes — excluded.
                         "prefix": "aichael_llue_ve_mu_cho_HYPOTHESIS"},
+    "buenas_tardes":   {"lang": "es_cas", "syllables": ["bue","nas","tar","des"],
+                        "prefix": "aichael_bue_nas_tar_des_HYPOTHESIS"},
+    "buenas_noches":   {"lang": "es_cas", "syllables": ["bue","nas","no","ches"],
+                        "prefix": "aichael_bue_nas_no_ches_HYPOTHESIS"},
 }
 
 
@@ -444,17 +488,27 @@ def main(phrase_name):
     proc = AutoProcessor.from_pretrained("facebook/wav2vec2-lv-60-espeak-cv-ft")
     mdl = AutoModelForCTC.from_pretrained("facebook/wav2vec2-lv-60-espeak-cv-ft")
     mdl.eval()
-    slot_map = {0.20: build_slots(syllables, 0.20),
-                0.30: build_slots(syllables, 0.30),
-                0.40: build_slots(syllables, 0.40)}
+    # Build slot_map covering all melisma thresholds we use for sweeps.
+    # Each threshold's slot timings differ — using the wrong slot_map would
+    # mis-align expected syllables to the wrong window times.
+    slot_map = {t: build_slots(syllables, t)
+                for t in (0.20, 0.25, 0.30, 0.35, 0.40)}
+
+    # Accept files matching the primary prefix OR a HYPOTHESIS variant
+    # (the latter is what render_seeds.py emits by default; the former is
+    # the older naming for buenos_dias / happy_birthday).
+    phrase_tag = "_".join(syllables)
+    hyp_prefix = f"aichael_{phrase_tag}_HYPOTHESIS"
+    prefixes_to_scan = list({prefix, hyp_prefix})  # dedupe if same
 
     files = []
-    pattern = re.compile(rf"{re.escape(prefix)}_thr(\d+)_seed(\d+)\.wav")
-    for path in sorted(DL.glob(f"{prefix}_thr*_seed*.wav")):
-        m = pattern.match(path.name)
-        if m:
-            thr, seed = int(m.group(1))/100, int(m.group(2))
-            files.append((f"SINGLE thr={thr:.2f} seed={seed:>3d}", path,
+    for scan_prefix in prefixes_to_scan:
+        pattern = re.compile(rf"{re.escape(scan_prefix)}_thr(\d+)_seed(\d+)\.wav")
+        for path in sorted(DL.glob(f"{scan_prefix}_thr*_seed*.wav")):
+            m = pattern.match(path.name)
+            if m:
+                thr, seed = int(m.group(1))/100, int(m.group(2))
+                files.append((f"SINGLE thr={thr:.2f} seed={seed:>3d}", path,
                           slot_map.get(thr, slot_map[0.20]), thr, seed))
     for tag, p in [("v2_xf",  DL / f"{prefix}_composite_v2_xf.wav"),
                    ("lev_xf", DL / f"{prefix}_composite_lev_xf.wav"),
@@ -464,9 +518,15 @@ def main(phrase_name):
 
     results = []
     for label, path, slots, thr, seed in files:
-        ws, dets = score(proc, mdl, path, slots, lang)
+        ws, dets = score(proc, mdl, path, slots, lang, len(set(syllables)))
         w1, mean = ws[0], sum(ws) / N_W
-        new = 0.3 * w1 + 0.7 * mean
+        # Aggregation (2026-05-14): w1 weighted 2x (effective 2/5 instead
+        # of 1/4 for arithmetic mean). Articulates "first impression matters
+        # a bit more than the rest" without going full 50/50. Easy to read:
+        # `new = (2*w1 + w2 + w3 + w4) / 5`.
+        # `mean` is still computed for display reference but no longer
+        # equals `new`.
+        new = (2 * ws[0] + ws[1] + ws[2] + ws[3]) / 5
         results.append((label, path.name, w1, mean, new, ws, dets))
     results.sort(key=lambda r: -r[4])
 
@@ -489,6 +549,25 @@ def main(phrase_name):
         mark = " ⭐" if i == 1 else ""
         print(f"  #{i:>2}  {new:.3f}   {ws[0]:.2f}   {ws[1]:.2f}   {ws[2]:.2f}   {ws[3]:.2f}    {label:32s}   {det}{mark}")
     print(f"\n(Top 20 of {len(results)} total)")
+
+    # Top-per-threshold helper. Prevents the threshold-bias trap (metric
+    # systematically over-rewards thr=0.20 via cycling-melisma cycles, so
+    # the global top can mask better-quality candidates at thr=0.30/0.40).
+    label_thr_re = re.compile(r"SINGLE\s+thr=(\d+\.\d+)\s+seed=")
+    by_thr: dict[float, tuple] = {}
+    for rank0, (label, fname, w1, mean, new, ws, dets) in enumerate(results):
+        m = label_thr_re.match(label)
+        if not m: continue
+        thr = float(m.group(1))
+        if thr not in by_thr:
+            by_thr[thr] = (rank0 + 1, label, fname, w1, mean, new, ws, dets)
+    if by_thr:
+        print(f"\n--- top SINGLE at each threshold (catches threshold-bias) ---")
+        for thr in sorted(by_thr.keys()):
+            rank, label, fname, _, _, new, ws, _ = by_thr[thr]
+            print(f"  thr={thr:.2f}  rank=#{rank:<3d}  new={new:.3f}  "
+                  f"w1={ws[0]:.2f}  w2={ws[1]:.2f}  w3={ws[2]:.2f}  w4={ws[3]:.2f}  "
+                  f"{fname}")
 
 
 if __name__ == "__main__":

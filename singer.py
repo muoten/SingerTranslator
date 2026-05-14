@@ -66,6 +66,17 @@ SYLLABLE_OVERRIDES: dict[str, str] = {
     # 'mu' and 'cho' happen to round-trip OK via g2p_en (M-UW1, CH-OW1).
     "llue": "en_Y-W-EH1",   # Y = English /j/ — closest ARPABET to Castilian /jwe/
     "ve":   "en_B-EH1",     # Spanish /be/
+    # buenas tardes (Spanish):
+    #   'nas' -> N-AE1-S via g2p_en is /næs/ (too anglo); Spanish /a/ is
+    #            central, closer to AA1 (/ɑ/).
+    #   'tar' -> T-AA1-R via g2p_en gives an English /ɹ/ approximant. To
+    #            push SoulX toward a Spanish tap /ɾ/, we add a trailing
+    #            schwa so the /r/ lands intervocalically (English allophone
+    #            of intervocalic /r/ is a tap, as in "very", "berry").
+    #   'des' -> D-EH1 via g2p_en DROPS the final /s/ → renders as "de".
+    "nas":  "en_N-AA1-S",
+    "tar":  "en_T-AA1-R-AH0",
+    "des":  "en_D-EH1-S",
 }
 
 # ---------------- phoneme helpers ------------------------------------------
