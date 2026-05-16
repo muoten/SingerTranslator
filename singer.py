@@ -77,6 +77,11 @@ SYLLABLE_OVERRIDES: dict[str, str] = {
     "nas":  "en_N-AA1-S",
     "tar":  "en_T-AA1-R-AH0",
     "des":  "en_D-EH1-S",
+    # muchos / muchas — g2p_en gives 'chos' -> CH-OW1-Z (voiced final)
+    # and 'chas' -> CH-AE1-Z (anglo /æ/ + voiced). Force Spanish /tʃos/
+    # and /tʃas/ with unvoiced final /s/ and Spanish /a/ via AA1.
+    "chos": "en_CH-OW1-S",
+    "chas": "en_CH-AA1-S",
 }
 
 # ---------------- phoneme helpers ------------------------------------------

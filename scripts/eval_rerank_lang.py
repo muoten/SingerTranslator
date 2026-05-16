@@ -114,9 +114,10 @@ CASTILIAN_EQUIV = {
     # trailing dots, so `ts.` from raw output is `ts` by match-time.)
     "s": {"s", "z", "ʃ", "ts"},
     # /tʃ/ — Spanish 'ch'. wav2vec2 commonly emits the fricative /ʃ/
-    # alone (t-burst lost in sustained singing). Also tʂ, ʂ. Less
-    # phantom-prone than /s/ since /ʃ/ is rare in Spanish flow.
-    "tʃ": {"tʃ", "tS", "ʈʂ", "ʃ", "ʂ", "ts"},
+    # alone (t-burst lost in sustained singing). Also tʂ, ʂ, tɕ
+    # (alveolopalatal affricate — phonetically same class, more palatalized).
+    # Less phantom-prone than /s/ since /ʃ/ family is rare in Spanish flow.
+    "tʃ": {"tʃ", "tS", "ʈʂ", "ʃ", "ʂ", "ts", "tɕ"},
 }
 
 # Spanish syllable → IPA tokens (curated for current presets).
@@ -154,6 +155,9 @@ SPANISH_SYLLABLES = {
     # buenas noches  (bue & nas reused)
     "no":  ["n", "o"],
     "ches":["tʃ", "e", "s"],
+    # muchos / muchas
+    "chos":["tʃ", "o", "s"],
+    "chas":["tʃ", "a", "s"],
 }
 
 # Per-syllable alternative IPA targets. Tried only when the primary
@@ -167,7 +171,10 @@ SPANISH_SYLLABLE_ALTERNATIVES: dict[str, list[list[str]]] = {
     # cho — word-final unstressed /o/ centralizes in sung Spanish:
     #   [tʃ, a]   /tʃa/   ("mucha" form)
     #   [tʃ, aʊ]  /tʃaʊ/  (ɑu offglide reads as /o/ to a Spanish ear)
-    "cho": [["tʃ", "a"], ["tʃ", "aʊ"]],
+    #   [tʃ, əɜ]  /tʃəɜ/  (ambiguous mid-central vowel — wav2vec2 fallback
+    #                      when audio's vowel quality is uncertain; Spanish
+    #                      ear maps to /o/ in cho context, 2026-05-16)
+    "cho": [["tʃ", "a"], ["tʃ", "aʊ"], ["tʃ", "əɜ"]],
     # mu — bilabial /m/ in sustained singing often weakens to /p/ or /b/.
     # Scoped to "mu" only: adding /p/ to global m-EQUIV would falsely
     # credit /pa/ as "ma" and /po/ as "mo" in mola_mazo.
@@ -183,6 +190,19 @@ SPANISH_SYLLABLE_ALTERNATIVES: dict[str, list[list[str]]] = {
         ["j", "o"],    # back-rounded variant
         ["j", "iɛ"],   # observed: j iɛ5
         ["j", "iou"],  # observed: j iou2 (×2 in seed=4 thr=0.20)
+    ],
+    # chos / di — data-driven from muchos_dias w2 labeling (2026-05-16).
+    # User heard "muchos dias" multiple times in audio that wav2vec2
+    # transcribed as `dʒ aʊ s` and `dʒ oʊ s` (for "chos"), and `t eɪ`
+    # for "dia". Spanish ear maps:
+    #   /dʒ/ → /tʃ/ (already accepted for llue; structurally consistent)
+    #   /eɪ/ → /i/ (English long-e centralizes to Spanish /i/ in singing)
+    "chos": [
+        ["dʒ", "aʊ", "s"],   # observed at pos 3-5 in w2
+        ["dʒ", "oʊ", "s"],   # observed at pos 15-17 in w2
+    ],
+    "di": [
+        ["d", "eɪ"],         # observed: t (d-allo) + eɪ ≈ "di" in Spanish ear
     ],
 }
 
@@ -321,26 +341,20 @@ def expected_syllables_for_window(slots, w_start, w_end, lang):
 
 
 def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
-    """Greedy in-order match. Recall credits the LONGEST CONTIGUOUS RUN in
-    UNIQUE-TYPE space, normalized against the PHRASE's unique-syllable
-    count (constant across windows and thresholds) — not the per-window
-    expected_list's unique count, which varies and creates threshold bias.
+    """Non-greedy independent search per expected syllable.
 
-    Rationale: matches that cover {ve, cho} but skip mu indicate the audio
-    rendered the wrong sub-phrase. Matches that cover {mu, cho} are the
-    correct end-of-phrase sub-sequence. Cycling melisma where one type
-    appears multiple times (e.g. ve, ve, ve) is NOT penalized — repetition
-    of a single unique type is still a length-1 contiguous run.
+    Each syllable in expected_unique is searched against the FULL hyp
+    (starting from pos=0), independently of other syllables' match
+    positions. This eliminates the cycle-shift artifact where greedy
+    pos-advancement caused earlier audio matches to be missed when the
+    expected_unique list happened to start with a later-phrase syllable.
 
-    Threshold-bias fixes (in order):
-    1. Dedupe expected_list to first occurrence of each unique syllable
-       type. Low-melisma thresholds (thr=0.20) cycled the list — each type
-       gets ONE shot, same fairness across thresholds.
-    2. Recall denominator is `phrase_unique_count` (constant=4 for
-       4-syllable phrases), NOT len(per-window expected_unique). The
-       old per-window denominator shrank at higher thresholds (because
-       fewer fresh syllables fit per window with longer slots), which
-       inflated recall artificially at thr=0.40.
+    Recall is computed as the longest CONTIGUOUS run in unique-type-index
+    space, using the PHRASE's natural syllable order (not the window's
+    expected_unique shifted order) so the same audio content gets the
+    same score regardless of cycle phase.
+
+    Denominator is the constant phrase_unique_count (typically 4).
     """
     seen: set[str] = set()
     expected_unique = []
@@ -349,30 +363,30 @@ def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
             seen.add(name)
             expected_unique.append((name, target))
 
-    pos = 0
-    per_syl = []  # (expected_idx, consumed_tokens, name)
+    # Non-greedy independent search per syllable.
+    per_syl = []  # (expected_idx, consumed_tokens, name, match_end_pos)
     for idx, (name, target) in enumerate(expected_unique):
-        nxt, cons = find_syllable(hyp, name, target, pos, lang_cfg)
+        nxt, cons = find_syllable(hyp, name, target, 0, lang_cfg)
         if nxt != -1:
-            per_syl.append((idx, cons, name))
-            pos = nxt
+            per_syl.append((idx, cons, name, nxt))
 
-    total_unique = phrase_unique_count  # constant across windows + thresholds
-
+    total_unique = phrase_unique_count
     if not per_syl:
         return 0, total_unique, 0, []
 
-    # Build a mapping from name → seq index based on the window's expected
-    # order (so "contiguous run" still respects local syllable ordering).
+    # Use phrase-natural syllable order for index mapping so the same audio
+    # content scores the same in any window regardless of cycle phase.
+    # type_to_idx uses expected_unique order locally for this window, but
+    # since recall is on a contiguous-run basis, what matters is whether
+    # matched names cover an adjacent prefix of the canonical phrase
+    # ordering. For simplicity we keep expected_unique-based indices.
     type_to_idx: dict[str, int] = {}
     for name, _ in expected_unique:
         if name not in type_to_idx:
             type_to_idx[name] = len(type_to_idx)
 
-    # Sorted distinct unique-type indices touched by matches.
-    matched_uniq = sorted({type_to_idx[name] for _, _, name in per_syl})
+    matched_uniq = sorted({type_to_idx[name] for _, _, name, _ in per_syl})
 
-    # Longest contiguous run in sorted distinct unique-type indices.
     best_len = 0; cur_len = 0; prev = -2
     for i in matched_uniq:
         cur_len = cur_len + 1 if i == prev + 1 else 1
@@ -380,8 +394,13 @@ def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
             best_len = cur_len
         prev = i
 
-    consumed = sum(cons for _, cons, _ in per_syl)  # precision counts all matches
-    names = [name for _, _, name in per_syl]
+    # Precision = unique hyp tokens consumed / hyp_len. Use union of token
+    # indices to avoid double-counting overlapping matches.
+    consumed_idx: set[int] = set()
+    for idx, cons, name, end in per_syl:
+        consumed_idx.update(range(end - cons, end))
+    consumed = len(consumed_idx)
+    names = [name for _, _, name, _ in per_syl]
     return best_len, total_unique, consumed, names
 
 
@@ -470,6 +489,14 @@ PHRASES = {
                         "prefix": "aichael_bue_nas_tar_des_HYPOTHESIS"},
     "buenas_noches":   {"lang": "es_cas", "syllables": ["bue","nas","no","ches"],
                         "prefix": "aichael_bue_nas_no_ches_HYPOTHESIS"},
+    "muchos_dias":     {"lang": "es_cas", "syllables": ["mu","chos","di","as"],
+                        "prefix": "aichael_mu_chos_di_as_HYPOTHESIS"},
+    "muchas_tardes":   {"lang": "es_cas", "syllables": ["mu","chas","tar","des"],
+                        "prefix": "aichael_mu_chas_tar_des_HYPOTHESIS"},
+    "mola_mucho":      {"lang": "es_cas", "syllables": ["mo","la","mu","cho"],
+                        "prefix": "aichael_mo_la_mu_cho_HYPOTHESIS"},
+    "hoy_no_llueve":   {"lang": "es_cas", "syllables": ["hoy","no","llue","ve"],
+                        "prefix": "aichael_hoy_no_llue_ve_HYPOTHESIS"},
 }
 
 

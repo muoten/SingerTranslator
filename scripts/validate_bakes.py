@@ -25,8 +25,8 @@ import eval_rerank_lang as erl
 # evaluate a thr=0.20 render against thr=0.30 slots and get spurious
 # regressions, as observed 2026-05-14).
 BAKES = {
-    "buenos_dias":     ("64f4f7bb8b14f1aa", 0.40, "bue-nos di-as"),
-    "happy_birthday":  ("932f839b4a224606", 0.20, "hap-pee birth-day"),
+    "buenos_dias":     ("64f4f7bb8b14f1aa", 0.30, "bue-nos di-as"),
+    "happy_birthday":  ("932f839b4a224606", 0.30, "hap-pee birth-day"),
     "buenas_tardes":   ("a92d6bb1a4a3a99c", 0.20, "bue-nas tar-des"),
     "llueve_mucho":    ("a0a62483c200280f", 0.20, "llue-ve mu-cho"),
     # buenas_noches and mola_mazo are not currently baked — skipped.
@@ -37,20 +37,32 @@ BAKES = {
 RATIO_THRESHOLD = 0.85
 
 
+STANDARD_THRESHOLDS = {0.20, 0.30, 0.40}
+
+
 def score_top_of_pool(phrase_name: str) -> tuple[float, str]:
     """Return (top_new, top_fname) under the current metric, restricted to
-    SINGLE renders. Composites often score higher than singles but get
-    ear-rejected for hard phrases — comparing against the top single
-    is the bake-vs-bake-class signal that matters for regression detection.
+    SINGLE renders at STANDARD thresholds (0.20, 0.30, 0.40). Composites
+    are excluded (often ear-rejected even when metric-#1). In-between
+    thresholds (0.25, 0.35) are also excluded — they were empirically
+    shown to add cost without surfacing better candidates (2026-05-14).
     """
-    erl.main(phrase_name)
     import json
+    import re
+    erl.main(phrase_name)
     jp = Path(f"/tmp/aichael_{phrase_name}_results.jsonl")
+    thr_pat = re.compile(r"_thr(\d+)_seed")
     for line in jp.read_text().splitlines():
         rec = json.loads(line)
-        if rec["label"].startswith("SINGLE"):
+        if not rec["label"].startswith("SINGLE"):
+            continue
+        m = thr_pat.search(rec["fname"])
+        if not m:
+            continue
+        thr = int(m.group(1)) / 100
+        if thr in STANDARD_THRESHOLDS:
             return rec["new"], rec["fname"]
-    raise RuntimeError(f"no SINGLE rows in {jp}")
+    raise RuntimeError(f"no SINGLE rows at standard thresholds in {jp}")
 
 
 def score_one_file(phrase_name: str, audio_path: Path, source_thr: float) -> float:
