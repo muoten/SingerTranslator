@@ -75,9 +75,15 @@ def score_one_file(phrase_name: str, audio_path: Path, source_thr: float) -> flo
     mdl = AutoModelForCTC.from_pretrained("facebook/wav2vec2-lv-60-espeak-cv-ft")
     mdl.eval()
     slots = erl.build_slots(syllables, source_thr)
-    ws, _ = erl.score(proc, mdl, audio_path, slots, lang, len(set(syllables)))
-    # w1-weighted-2x formula — must match eval_rerank_lang's `new`.
-    return (2 * ws[0] + ws[1] + ws[2] + ws[3]) / 5
+    phrase_unique_count = len(set(syllables))
+    ws, dets = erl.score(proc, mdl, audio_path, slots, lang, phrase_unique_count)
+    geom = (ws[0] * ws[1] * ws[2] * ws[3]) ** 0.25
+    # Match eval_rerank_lang's phrase_coverage multiplier (2026-05-16).
+    unique_seen = set()
+    for d in dets:
+        unique_seen.update(d["names"])
+    phrase_coverage = len(unique_seen) / phrase_unique_count
+    return geom * phrase_coverage
 
 
 def main():

@@ -12,7 +12,7 @@ Local-only. Doesn't modify singer.py or app.py — those still default
 to English. Wiring `lang` through to render is a follow-up.
 """
 from __future__ import annotations
-import json, os, re, sys, tempfile, warnings, pathlib
+import hashlib, json, os, re, sys, tempfile, warnings, pathlib
 warnings.filterwarnings("ignore")
 os.environ.setdefault("PHONEMIZER_ESPEAK_LIBRARY", "/opt/homebrew/lib/libespeak-ng.dylib")
 sys.path.insert(0, "/Users/milhouse/claude-code/SingerTranslator")
@@ -116,8 +116,11 @@ CASTILIAN_EQUIV = {
     # /tʃ/ — Spanish 'ch'. wav2vec2 commonly emits the fricative /ʃ/
     # alone (t-burst lost in sustained singing). Also tʂ, ʂ, tɕ
     # (alveolopalatal affricate — phonetically same class, more palatalized).
-    # Less phantom-prone than /s/ since /ʃ/ family is rare in Spanish flow.
-    "tʃ": {"tʃ", "tS", "ʈʂ", "ʃ", "ʂ", "ts", "tɕ"},
+    # 2026-05-16: dropped `ts` — it's an English-leakage token in
+    # espeak-cv-ft output (Spanish has no /ts/ phoneme), and combined
+    # with the `cho` [tʃ,a]/[tʃ,aʊ]/[tʃ,əɜ] alts it credited phantom
+    # `cho` matches in every junk window of mola_mucho seed=9.
+    "tʃ": {"tʃ", "tS", "ʈʂ", "ʃ", "ʂ", "tɕ"},
 }
 
 # Spanish syllable → IPA tokens (curated for current presets).
@@ -204,6 +207,12 @@ SPANISH_SYLLABLE_ALTERNATIVES: dict[str, list[list[str]]] = {
     "di": [
         ["d", "eɪ"],         # observed: t (d-allo) + eɪ ≈ "di" in Spanish ear
     ],
+    # la — SoulX consistently produces a closing front glide after /l/
+    # in mola_mucho/mola_mazo renders, transcribed as `l aɪ`. Ear-confirmed
+    # as "lai" (closer to English "lie") but user accepts as la for these
+    # phrases (2026-05-16). Scoped to la — adding aɪ to global a-EQUIV
+    # would phantom-credit "nice"→nas, "my"→ma, "tire"→tar, etc.
+    "la":  [["l", "aɪ"]],
 }
 
 LANG_CONFIGS = {
@@ -341,67 +350,40 @@ def expected_syllables_for_window(slots, w_start, w_end, lang):
 
 
 def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
-    """Non-greedy independent search per expected syllable.
+    """Unique-type-count recall — counts distinct syllable types matched.
 
-    Each syllable in expected_unique is searched against the FULL hyp
-    (starting from pos=0), independently of other syllables' match
-    positions. This eliminates the cycle-shift artifact where greedy
-    pos-advancement caused earlier audio matches to be missed when the
-    expected_unique list happened to start with a later-phrase syllable.
+    Returns (unique_types_matched, phrase_unique_count, good_tokens, names).
 
-    Recall is computed as the longest CONTIGUOUS run in unique-type-index
-    space, using the PHRASE's natural syllable order (not the window's
-    expected_unique shifted order) so the same audio content gets the
-    same score regardless of cycle phase.
+    `unique_types_matched`: number of distinct target syllables found
+        anywhere in hyp (no order, no count of repetitions).
+    `phrase_unique_count`: typically 4 — recall denominator.
+    `good_tokens`: count of hyp tokens covered by any successful match
+        (set union — no double-count when multiple matches overlap).
 
-    Denominator is the constant phrase_unique_count (typically 4).
+    Window F1 (computed in score()) = average of:
+        recall    = unique_types_matched / phrase_unique_count
+        precision = good_tokens / hyp_len
     """
     seen: set[str] = set()
-    expected_unique = []
+    targets = []
     for name, target in expected_list:
         if name not in seen:
             seen.add(name)
-            expected_unique.append((name, target))
+            targets.append((name, target))
 
-    # Non-greedy independent search per syllable.
-    per_syl = []  # (expected_idx, consumed_tokens, name, match_end_pos)
-    for idx, (name, target) in enumerate(expected_unique):
-        nxt, cons = find_syllable(hyp, name, target, 0, lang_cfg)
-        if nxt != -1:
-            per_syl.append((idx, cons, name, nxt))
-
-    total_unique = phrase_unique_count
-    if not per_syl:
-        return 0, total_unique, 0, []
-
-    # Use phrase-natural syllable order for index mapping so the same audio
-    # content scores the same in any window regardless of cycle phase.
-    # type_to_idx uses expected_unique order locally for this window, but
-    # since recall is on a contiguous-run basis, what matters is whether
-    # matched names cover an adjacent prefix of the canonical phrase
-    # ordering. For simplicity we keep expected_unique-based indices.
-    type_to_idx: dict[str, int] = {}
-    for name, _ in expected_unique:
-        if name not in type_to_idx:
-            type_to_idx[name] = len(type_to_idx)
-
-    matched_uniq = sorted({type_to_idx[name] for _, _, name, _ in per_syl})
-
-    best_len = 0; cur_len = 0; prev = -2
-    for i in matched_uniq:
-        cur_len = cur_len + 1 if i == prev + 1 else 1
-        if cur_len > best_len:
-            best_len = cur_len
-        prev = i
-
-    # Precision = unique hyp tokens consumed / hyp_len. Use union of token
-    # indices to avoid double-counting overlapping matches.
     consumed_idx: set[int] = set()
-    for idx, cons, name, end in per_syl:
-        consumed_idx.update(range(end - cons, end))
-    consumed = len(consumed_idx)
-    names = [name for _, _, name, _ in per_syl]
-    return best_len, total_unique, consumed, names
+    matched_types: set[str] = set()
+    for name, target in targets:
+        pos = 0
+        while pos < len(hyp):
+            nxt, cons = find_syllable(hyp, name, target, pos, lang_cfg)
+            if nxt == -1:
+                break
+            matched_types.add(name)
+            consumed_idx.update(range(nxt - cons, nxt))
+            pos = nxt
+
+    return len(matched_types), phrase_unique_count, len(consumed_idx), sorted(matched_types)
 
 
 _STRIP_TRAILING = __import__("re").compile(r"[\d.]+$")
@@ -442,6 +424,43 @@ def w2v_phon(proc, mdl, chunk, sr=16000):
     return proc.batch_decode([ids])[0].strip()
 
 
+# Per-window wav2vec2 hyp cache. wav2vec2 is the slow part (~95% of
+# rerank time); the audio + N_W split fully determines the per-window
+# hyp tokens. Caching means metric/EQUIV/alt tweaks re-score in seconds.
+# Cache key = (abs_path, mtime_ns, size, N_W). Invalidates automatically
+# if the wav is regenerated or N_W changes.
+W2V_CACHE_DIR = Path("/tmp/aichael_w2v_cache")
+W2V_CACHE_DIR.mkdir(exist_ok=True)
+
+
+def _w2v_cache_path(wav_path: Path) -> Path:
+    st = wav_path.stat()
+    key = hashlib.sha1(
+        f"{wav_path.resolve()}::{st.st_mtime_ns}::{st.st_size}::{N_W}".encode()
+    ).hexdigest()
+    return W2V_CACHE_DIR / f"{key}.json"
+
+
+def _hyp_per_window(proc, mdl, audio, sr, wav_path: Path):
+    cache_p = _w2v_cache_path(wav_path)
+    if cache_p.exists():
+        try:
+            return json.loads(cache_p.read_text())["hyp_per_window"]
+        except Exception:
+            pass
+    win_len = len(audio) / N_W / sr
+    out = []
+    for w in range(N_W):
+        ws, we = w * win_len, (w + 1) * win_len
+        s_idx = int(ws * sr)
+        e_idx = int(we * sr) if w < N_W - 1 else len(audio)
+        chunk = audio[s_idx:e_idx]
+        hyp = normalize_hyp_tokens(w2v_phon(proc, mdl, chunk, sr).split())
+        out.append(hyp)
+    cache_p.write_text(json.dumps({"hyp_per_window": out}))
+    return out
+
+
 def score(proc, mdl, wav, slots, lang, phrase_unique_count):
     cfg = LANG_CONFIGS[lang]
     audio, sr = sf.read(str(wav), dtype="float32")
@@ -450,23 +469,38 @@ def score(proc, mdl, wav, slots, lang, phrase_unique_count):
         import scipy.signal as sps
         audio = sps.resample_poly(audio, 16000, sr); sr = 16000
     win_len = len(audio) / N_W / sr
+    hyp_per_w = _hyp_per_window(proc, mdl, audio, sr, Path(wav))
     win_scores, win_details = [], []
     for w in range(N_W):
         ws, we = w * win_len, (w + 1) * win_len
-        s_idx, e_idx = int(ws * sr), int(we * sr) if w < N_W - 1 else len(audio)
-        chunk = audio[s_idx:e_idx]
-        hyp = normalize_hyp_tokens(w2v_phon(proc, mdl, chunk, sr).split())
+        hyp = hyp_per_w[w]
         exp_sylls = expected_syllables_for_window(slots, ws, we, lang)
         found, total, consumed, names = syllable_completion(hyp, exp_sylls, cfg, phrase_unique_count)
-        recall = found / max(total, 1)
-        precision = consumed / max(len(hyp), 1)
-        f1 = 2 * recall * precision / (recall + precision) if (recall + precision) > 0 else 0.0
+        # syllable_coverage: unique phrase-syllable types detected in window
+        # divided by phrase unique syllable count (=4). NOT classical recall:
+        # the denominator is the phrase's type inventory, not the number of
+        # expected slot instances in the window (which varies by threshold).
+        # Effect: a window with 5 slots and 2 distinct types matched scores
+        # 0.50, regardless of how many times each type was supposed to repeat.
+        syllable_coverage = found / max(total, 1)
+        # syllable_precision: fraction of hyp tokens consumed by valid matches.
+        # Denominator = hyp_len (raw). Silent-window guard: if a window has
+        # fewer than 6 phonemes, the singer effectively didn't sing in that
+        # window — set prec to 0 so the geom aggregate collapses. This catches
+        # the "habe birthday" failure mode where a 4-token W3 with 4 matches
+        # scored 1.0 and dominated the file's geom mean (2026-05-16).
+        if len(hyp) < 6:
+            syllable_precision = 0.0
+        else:
+            syllable_precision = consumed / len(hyp)
+        f1 = (syllable_coverage * syllable_precision) ** 0.5
         win_scores.append(f1)
         win_details.append({
             "found": found, "total": total, "consumed": consumed,
             "hyp_len": len(hyp), "names": names,
-            "recall": recall, "precision": precision, "f1": f1,
-            "hyp": " ".join(hyp),
+            "syllable_coverage": syllable_coverage,
+            "syllable_precision": syllable_precision,
+            "f1": f1, "hyp": " ".join(hyp),
         })
     return win_scores, win_details
 
@@ -544,37 +578,44 @@ def main(phrase_name):
             files.append((f"COMP   {tag:24s}", p, slot_map[0.20], None, None))
 
     results = []
+    phrase_unique_count = len(set(syllables))
     for label, path, slots, thr, seed in files:
-        ws, dets = score(proc, mdl, path, slots, lang, len(set(syllables)))
+        ws, dets = score(proc, mdl, path, slots, lang, phrase_unique_count)
         w1, mean = ws[0], sum(ws) / N_W
-        # Aggregation (2026-05-14): w1 weighted 2x (effective 2/5 instead
-        # of 1/4 for arithmetic mean). Articulates "first impression matters
-        # a bit more than the rest" without going full 50/50. Easy to read:
-        # `new = (2*w1 + w2 + w3 + w4) / 5`.
-        # `mean` is still computed for display reference but no longer
-        # equals `new`.
-        new = (2 * ws[0] + ws[1] + ws[2] + ws[3]) / 5
-        results.append((label, path.name, w1, mean, new, ws, dets))
+        # geom-mean across windows: any dead window collapses score to 0.
+        geom = (ws[0] * ws[1] * ws[2] * ws[3]) ** 0.25
+        # 2026-05-16: phrase_coverage multiplier. Computes "how many of the
+        # phrase's 4 unique syllables were detected anywhere in the file,"
+        # capping the score by phrase-level recall. Catches files where one
+        # window has lots of matches of the same 2 syllables repeatedly but
+        # other syllables are never produced (mola_mazo: ma+la heard 4× each,
+        # mo and zo never appear → 2/4 = 0.50 multiplier).
+        unique_seen = set()
+        for d in dets:
+            unique_seen.update(d["names"])
+        phrase_coverage = len(unique_seen) / phrase_unique_count
+        new = geom * phrase_coverage
+        results.append((label, path.name, w1, mean, new, ws, dets, phrase_coverage))
     results.sort(key=lambda r: -r[4])
 
     # Persist per-file scores so a composite-builder can pick best-per-window
     # without re-running wav2vec2. Output schema is intentionally minimal.
     jsonl_path = Path(f"/tmp/aichael_{phrase_name}_results.jsonl")
     with jsonl_path.open("w") as f:
-        for label, fname, w1, mean, new, ws, dets in results:
+        for label, fname, w1, mean, new, ws, dets, pcov in results:
             f.write(json.dumps({
                 "label": label, "fname": fname,
                 "w1": w1, "mean": mean, "new": new,
-                "win_f1": ws,
+                "win_f1": ws, "phrase_coverage": pcov,
             }) + "\n")
     print(f"(scores written to {jsonl_path})")
 
-    print(f"\n{'rank':>4}  {'new':>6s}  {'w1':>5s}  {'w2':>5s}  {'w3':>5s}  {'w4':>5s}   {'label':32s}   per-window (R/P→F1)")
-    for i, (label, fname, w1, mean, new, ws, dets) in enumerate(results[:20], 1):
-        det = "  ".join(f"{dets[j]['recall']:.2f}/{dets[j]['precision']:.2f}→{dets[j]['f1']:.2f}"
+    print(f"\n{'rank':>4}  {'new':>6s}  {'pcov':>4s}  {'w1':>5s}  {'w2':>5s}  {'w3':>5s}  {'w4':>5s}   {'label':32s}   per-window (cov/prec→F1)")
+    for i, (label, fname, w1, mean, new, ws, dets, pcov) in enumerate(results[:20], 1):
+        det = "  ".join(f"{dets[j]['syllable_coverage']:.2f}/{dets[j]['syllable_precision']:.2f}→{dets[j]['f1']:.2f}"
                        for j in range(N_W))
         mark = " ⭐" if i == 1 else ""
-        print(f"  #{i:>2}  {new:.3f}   {ws[0]:.2f}   {ws[1]:.2f}   {ws[2]:.2f}   {ws[3]:.2f}    {label:32s}   {det}{mark}")
+        print(f"  #{i:>2}  {new:.3f}  {pcov:.2f}  {ws[0]:.2f}   {ws[1]:.2f}   {ws[2]:.2f}   {ws[3]:.2f}    {label:32s}   {det}{mark}")
     print(f"\n(Top 20 of {len(results)} total)")
 
     # Top-per-threshold helper. Prevents the threshold-bias trap (metric
@@ -582,16 +623,16 @@ def main(phrase_name):
     # the global top can mask better-quality candidates at thr=0.30/0.40).
     label_thr_re = re.compile(r"SINGLE\s+thr=(\d+\.\d+)\s+seed=")
     by_thr: dict[float, tuple] = {}
-    for rank0, (label, fname, w1, mean, new, ws, dets) in enumerate(results):
+    for rank0, (label, fname, w1, mean, new, ws, dets, pcov) in enumerate(results):
         m = label_thr_re.match(label)
         if not m: continue
         thr = float(m.group(1))
         if thr not in by_thr:
-            by_thr[thr] = (rank0 + 1, label, fname, w1, mean, new, ws, dets)
+            by_thr[thr] = (rank0 + 1, label, fname, w1, mean, new, ws, dets, pcov)
     if by_thr:
         print(f"\n--- top SINGLE at each threshold (catches threshold-bias) ---")
         for thr in sorted(by_thr.keys()):
-            rank, label, fname, _, _, new, ws, _ = by_thr[thr]
+            rank, label, fname, _, _, new, ws, _, _ = by_thr[thr]
             print(f"  thr={thr:.2f}  rank=#{rank:<3d}  new={new:.3f}  "
                   f"w1={ws[0]:.2f}  w2={ws[1]:.2f}  w3={ws[2]:.2f}  w4={ws[3]:.2f}  "
                   f"{fname}")
