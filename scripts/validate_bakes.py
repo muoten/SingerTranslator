@@ -77,7 +77,8 @@ def score_one_file(phrase_name: str, audio_path: Path, source_thr: float) -> flo
     slots = erl.build_slots(syllables, source_thr)
     phrase_unique_count = len(set(syllables))
     ws, dets = erl.score(proc, mdl, audio_path, slots, lang, phrase_unique_count)
-    geom = (ws[0] * ws[1] * ws[2] * ws[3]) ** 0.25
+    # W1-doubled geom (matches eval_rerank_lang).
+    geom = (ws[0] * ws[0] * ws[1] * ws[2] * ws[3]) ** 0.2
     # Match eval_rerank_lang's phrase_coverage multiplier (2026-05-16).
     unique_seen = set()
     for d in dets:

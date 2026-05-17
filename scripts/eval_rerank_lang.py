@@ -106,7 +106,13 @@ CASTILIAN_EQUIV = {
     # v (labiodental fricative — too rare in Spanish to matter).
     "w": {"w", "u", "uː", "ʊ", "ʋ"},
     # nasals
-    "n": {"n", "ŋ", "ɳ", "ɲ", "m"}, "m": {"m", "n", "ŋ", "b"},
+    # 2026-05-18: dropped `n` from m-EQUIV. Phantom-prone — let bare /n V/
+    # sequences credit as /m V/ syllables (mo/ma/mu). Observed in mola_mazo
+    # seed29 W1 where `n o` was credited as `mo`, inflating cov to 0.75
+    # despite no /m/ in the audio. /m/→/n/ assimilation is real but rare
+    # enough in sung context that the phantom rate dominates. Bilabial /b/
+    # for sung /m/ is retained — well-attested allophone in Castilian.
+    "n": {"n", "ŋ", "ɳ", "ɲ", "m"}, "m": {"m", "ŋ", "b"},
     "l": {"l", "ɫ", "ɾ", "ʎ"},
     # tap r
     "ɾ": {"ɾ", "r", "ɹ"},
@@ -582,8 +588,12 @@ def main(phrase_name):
     for label, path, slots, thr, seed in files:
         ws, dets = score(proc, mdl, path, slots, lang, phrase_unique_count)
         w1, mean = ws[0], sum(ws) / N_W
-        # geom-mean across windows: any dead window collapses score to 0.
-        geom = (ws[0] * ws[1] * ws[2] * ws[3]) ** 0.25
+        # geom-mean across windows with W1 doubled. W1 is systematically the
+        # hardest window (SoulX cold-start: no left context, less warm-up).
+        # Doubling it in the geom rewards files that overcame the cold start.
+        # Mathematically: (w1·w1·w2·w3·w4)^(1/5) — w1 counted twice.
+        # Any dead window still collapses the score to 0.
+        geom = (ws[0] * ws[0] * ws[1] * ws[2] * ws[3]) ** 0.2
         # 2026-05-16: phrase_coverage multiplier. Computes "how many of the
         # phrase's 4 unique syllables were detected anywhere in the file,"
         # capping the score by phrase-level recall. Catches files where one
