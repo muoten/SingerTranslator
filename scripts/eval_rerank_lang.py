@@ -93,9 +93,14 @@ CASTILIAN_EQUIV = {
     # /ʎ/ for any rural speaker preserving the distinction.
     "j": {"j", "ʝ", "ʎ", "i", "iː", "dʒ", "ʒ"},
     "ɲ": {"ɲ", "n"},
-    # Pure 5-vowel system
-    "a": {"a", "ɑ", "ɑː", "ʌ"},
-    "e": {"e", "ɛ", "eɪ"},
+    # Pure 5-vowel system. 2026-05-18: added Latin-letter long forms
+    # `aː` and `eː` — espeak-cv-ft emits these for Mandarin-style or
+    # English-bias long-vowel realizations that SoulX produces when
+    # singing Spanish. Data-driven scan found 1100+ `aː` and 600+ `eː`
+    # in windows where /a/- and /e/-bearing syllables were expected
+    # but missed. Unambiguously the target vowel quality.
+    "a": {"a", "ɑ", "ɑː", "aː", "ʌ"},
+    "e": {"e", "ɛ", "eɪ", "eː"},
     "i": {"i", "iː", "ɪ"},
     "o": {"o", "oʊ", "ou", "oː", "ɔ"},
     "u": {"u", "uː", "ʊ", "w"},
@@ -114,8 +119,11 @@ CASTILIAN_EQUIV = {
     # for sung /m/ is retained — well-attested allophone in Castilian.
     "n": {"n", "ŋ", "ɳ", "ɲ", "m"}, "m": {"m", "ŋ", "b"},
     "l": {"l", "ɫ", "ɾ", "ʎ"},
-    # tap r
-    "ɾ": {"ɾ", "r", "ɹ"},
+    # tap r. 2026-05-18: added `ʐ` (Mandarin retroflex r). SoulX produces
+    # this when reaching for a Spanish tap r; data-driven scan found ~100
+    # occurrences across `tar`/`des`/`chas` missed-windows. Phantom risk
+    # is low — Spanish doesn't produce `ʐ` natively.
+    "ɾ": {"ɾ", "r", "ɹ", "ʐ"},
     # /s/ stays strict-ish. (Note: hyp tokens are normalized to strip
     # trailing dots, so `ts.` from raw output is `ts` by match-time.)
     "s": {"s", "z", "ʃ", "ts"},
