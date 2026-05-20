@@ -76,15 +76,21 @@ ENGLISH_EQUIV = {
 # - pure 5-vowel system /a e i o u/, no diphthongs
 # - /r/ → /ɾ/ (tap) or /r/ (trill); never /ɹ/
 CASTILIAN_EQUIV = {
-    "p": {"p", "b"}, "t": {"t", "d"}, "k": {"k", "g"},
+    "p": {"p", "b"}, "t": {"t", "d", "ts"}, "k": {"k", "g"},
     # Castilian /b/ in singing weakens to bilabial fricative /β/;
     # wav2vec2 often emits ʋ, f, m, or elides
     "b": {"b", "β", "ʋ", "p", "m", "f"},
-    "d": {"d", "ð", "t"}, "g": {"g", "ɣ", "k"},
-    # /θ/ — strict Castilian. No /s/ fallback (would credit any stray
-    # /s/ as a `zo` syllable). True seseo renders will fail the metric;
-    # that's correct — we're checking Castilian fidelity here.
-    "θ": {"θ"},
+    "d": {"d", "ð", "t"}, "g": {"g", "ɡ", "ɣ", "k"},
+    # /θ/ — Castilian. wav2vec2 transcription bias: the espeak-cv-ft model
+    # emits `θ` only 32× across 1620 cached files (~1.7% of files), even
+    # when SoulX is asked for `en_TH` and produces audibly good /θ/.
+    # Common substitutes wav2vec2 emits at /θ/ positions: `t` (8573 total),
+    # `ts` (3029 total). Adding these closes the transcription gap.
+    # Phantom risk limited: /θ/ only appears in `zo` (mola_mazo) and `cias`
+    # (muchas_gracias) — no other Spanish syllable uses it, so phantoms
+    # can only affect those two phrases. Kept `s` out (would conflict
+    # with the many /s/-ending syllables) and `f` out (rare substitute).
+    "θ": {"θ", "ts", "t"},
     # /h/ → silent. NO equivalents — must be matched via OPTIONAL_PREFIX
     "h": set(),
     # /j/ — yeísmo merger is modern Castilian standard. Spans the full
@@ -134,7 +140,11 @@ CASTILIAN_EQUIV = {
     # espeak-cv-ft output (Spanish has no /ts/ phoneme), and combined
     # with the `cho` [tʃ,a]/[tʃ,aʊ]/[tʃ,əɜ] alts it credited phantom
     # `cho` matches in every junk window of mola_mucho seed=9.
-    "tʃ": {"tʃ", "tS", "ʈʂ", "ʃ", "ʂ", "tɕ"},
+    # 2026-05-18: added `dʒ` (voiced palatal affricate). Observed
+    # ~3× per window in muchas_gracias renders where chas was expected
+    # but missed (`dʒ a s` patterns clearly audible as "chas"). /tʃ/↔/dʒ/
+    # is a well-known voicing-allophone in casual/sung speech.
+    "tʃ": {"tʃ", "tS", "ʈʂ", "ʃ", "ʂ", "tɕ", "dʒ"},
 }
 
 # Spanish syllable → IPA tokens (curated for current presets).
@@ -175,6 +185,9 @@ SPANISH_SYLLABLES = {
     # muchos / muchas
     "chos":["tʃ", "o", "s"],
     "chas":["tʃ", "a", "s"],
+    # muchas gracias
+    "gra":  ["g", "ɾ", "a"],
+    "cias": ["θ", "j", "a", "s"],   # Castilian /θjas/
 }
 
 # Per-syllable alternative IPA targets. Tried only when the primary
@@ -438,30 +451,46 @@ def w2v_phon(proc, mdl, chunk, sr=16000):
     return proc.batch_decode([ids])[0].strip()
 
 
-# Per-window wav2vec2 hyp cache. wav2vec2 is the slow part (~95% of
-# rerank time); the audio + N_W split fully determines the per-window
-# hyp tokens. Caching means metric/EQUIV/alt tweaks re-score in seconds.
-# Cache key = (abs_path, mtime_ns, size, N_W). Invalidates automatically
-# if the wav is regenerated or N_W changes.
+# Per-window wav2vec2 hyp cache.
+#
+# 2026-05-18: the cache is now self-sufficient — it stores hyp_per_window
+# plus audio duration and wav metadata. This means scoring works WITHOUT
+# the wav file present, letting us delete bulk wavs while keeping the
+# full historical pool's hyp signal for the metric.
+#
+# Cache filename: <wav_basename>.json (name-based, deterministic).
+# Invalidation: cache stores wav mtime_ns+size; if the wav exists and
+# its stats differ, the cache is treated as stale and recomputed.
+# If the wav is missing (deleted), the cache is trusted as authoritative.
 W2V_CACHE_DIR = Path("/tmp/aichael_w2v_cache")
 W2V_CACHE_DIR.mkdir(exist_ok=True)
 
 
 def _w2v_cache_path(wav_path: Path) -> Path:
-    st = wav_path.stat()
-    key = hashlib.sha1(
-        f"{wav_path.resolve()}::{st.st_mtime_ns}::{st.st_size}::{N_W}".encode()
-    ).hexdigest()
-    return W2V_CACHE_DIR / f"{key}.json"
+    return W2V_CACHE_DIR / f"{wav_path.name}.json"
+
+
+def _load_cached(wav_path: Path):
+    """Return cache dict or None. None if missing or stale (wav exists but stats differ)."""
+    cache_p = _w2v_cache_path(wav_path)
+    if not cache_p.exists():
+        return None
+    try:
+        data = json.loads(cache_p.read_text())
+    except Exception:
+        return None
+    if wav_path.exists():
+        st = wav_path.stat()
+        if (data.get("mtime_ns") not in (None, st.st_mtime_ns)
+            or data.get("size") not in (None, st.st_size)):
+            return None
+    return data
 
 
 def _hyp_per_window(proc, mdl, audio, sr, wav_path: Path):
-    cache_p = _w2v_cache_path(wav_path)
-    if cache_p.exists():
-        try:
-            return json.loads(cache_p.read_text())["hyp_per_window"]
-        except Exception:
-            pass
+    cached = _load_cached(wav_path)
+    if cached is not None and "hyp_per_window" in cached:
+        return cached["hyp_per_window"]
     win_len = len(audio) / N_W / sr
     out = []
     for w in range(N_W):
@@ -471,19 +500,75 @@ def _hyp_per_window(proc, mdl, audio, sr, wav_path: Path):
         chunk = audio[s_idx:e_idx]
         hyp = normalize_hyp_tokens(w2v_phon(proc, mdl, chunk, sr).split())
         out.append(hyp)
-    cache_p.write_text(json.dumps({"hyp_per_window": out}))
+    payload = {"hyp_per_window": out, "duration_sec": len(audio) / sr,
+               "wav_name": wav_path.name}
+    if wav_path.exists():
+        st = wav_path.stat()
+        payload["mtime_ns"] = st.st_mtime_ns
+        payload["size"] = st.st_size
+    _w2v_cache_path(wav_path).write_text(json.dumps(payload))
     return out
+
+
+def cached_duration(wav_path: Path):
+    """Return cached duration_sec, or None if not in cache."""
+    cached = _load_cached(wav_path)
+    if cached is not None:
+        return cached.get("duration_sec")
+    return None
+
+
+def iter_pool_for_phrase(phrase: str, downloads_dir: Path,
+                          thresholds: set | None = None):
+    """Yield wav Paths for `phrase` from both existing files AND from cache
+    entries whose wav has been deleted. Used by scoring code so the pool
+    survives bulk wav deletion."""
+    cfg = PHRASES[phrase]
+    sylls = cfg["syllables"]
+    prefixes = {cfg["prefix"], f"aichael_{'_'.join(sylls)}_HYPOTHESIS"}
+    thr_pat = re.compile(r"_thr(\d+)_seed(\d+)\.wav$")
+    seen = set()
+    # Live wavs
+    for pre in prefixes:
+        for p in sorted(downloads_dir.glob(f"{pre}_thr*_seed*.wav")):
+            m = thr_pat.search(p.name)
+            if not m: continue
+            thr = int(m.group(1)) / 100
+            if thresholds is None or thr in thresholds:
+                seen.add(p.name)
+                yield p, thr
+    # Cached-but-deleted wavs
+    for cache_p in W2V_CACHE_DIR.glob("aichael_*.json"):
+        # cache filename = wav_basename.json
+        wav_name = cache_p.name[:-5]  # strip .json
+        if wav_name in seen:
+            continue
+        if not any(wav_name.startswith(pre) for pre in prefixes):
+            continue
+        m = thr_pat.search(wav_name)
+        if not m: continue
+        thr = int(m.group(1)) / 100
+        if thresholds is None or thr in thresholds:
+            yield downloads_dir / wav_name, thr
 
 
 def score(proc, mdl, wav, slots, lang, phrase_unique_count):
     cfg = LANG_CONFIGS[lang]
-    audio, sr = sf.read(str(wav), dtype="float32")
-    if audio.ndim > 1: audio = audio.mean(axis=1)
-    if sr != 16000:
-        import scipy.signal as sps
-        audio = sps.resample_poly(audio, 16000, sr); sr = 16000
-    win_len = len(audio) / N_W / sr
-    hyp_per_w = _hyp_per_window(proc, mdl, audio, sr, Path(wav))
+    wav_path = Path(wav)
+    cached = _load_cached(wav_path)
+    # Fast path: hyp + duration both cached → no wav read needed.
+    if cached is not None and "hyp_per_window" in cached and "duration_sec" in cached:
+        hyp_per_w = cached["hyp_per_window"]
+        win_len = cached["duration_sec"] / N_W
+    else:
+        # Cache miss (or partial) — must read the wav.
+        audio, sr = sf.read(str(wav_path), dtype="float32")
+        if audio.ndim > 1: audio = audio.mean(axis=1)
+        if sr != 16000:
+            import scipy.signal as sps
+            audio = sps.resample_poly(audio, 16000, sr); sr = 16000
+        win_len = len(audio) / N_W / sr
+        hyp_per_w = _hyp_per_window(proc, mdl, audio, sr, wav_path)
     win_scores, win_details = [], []
     for w in range(N_W):
         ws, we = w * win_len, (w + 1) * win_len
@@ -545,6 +630,8 @@ PHRASES = {
                         "prefix": "aichael_mo_la_mu_cho_HYPOTHESIS"},
     "hoy_no_llueve":   {"lang": "es_cas", "syllables": ["hoy","no","llue","ve"],
                         "prefix": "aichael_hoy_no_llue_ve_HYPOTHESIS"},
+    "muchas_gracias":  {"lang": "es_cas", "syllables": ["mu","chas","gra","cias"],
+                        "prefix": "aichael_mu_chas_gra_cias_HYPOTHESIS"},
 }
 
 

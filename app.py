@@ -30,32 +30,52 @@ except ImportError:
         return fn
 
 
+# Songs registry. label → song_dir key. Order = display order.
+# Add new songs here once their assets/{key}/ directory exists.
+SONGS = {
+    "Thriller":               "thriller",
+    "Billie Jean (WIP)":      "billie_jean",
+}
+
+
+def _song_ready(song_key: str) -> bool:
+    """A song is renderable iff all 4 asset files exist."""
+    from singer import prompt_wav, prompt_meta, template_json, accomp_wav
+    return all(getter(song_key).exists()
+               for getter in (prompt_wav, prompt_meta, template_json, accomp_wav))
+
+
 @GPU
-def _gpu_render(syllables, n_steps, melisma_mode):
+def _gpu_render(syllables, n_steps, melisma_mode, song):
     """The GPU-bound part. Wrapped separately so the cache-hit path bypasses
     @spaces.GPU entirely (otherwise quota is burned even on cache hits)."""
-    return render(syllables, n_steps=n_steps, melisma_mode=melisma_mode)
+    return render(syllables, n_steps=n_steps, melisma_mode=melisma_mode, song=song)
 
 
 def go(s1: str, s2: str, s3: str, s4: str, n_steps: int, melisma_mode: str,
-       progress: gr.Progress = gr.Progress()):
+       song_label: str, progress: gr.Progress = gr.Progress()):
     progress(0, desc="checking cache")
     syllables = [s.strip() for s in (s1, s2, s3, s4) if s and s.strip()]
     if not syllables:
         raise gr.Error("Provide at least one syllable.")
+    song = SONGS.get(song_label)
+    if song is None:
+        raise gr.Error(f"Unknown song: {song_label}")
+    if not _song_ready(song):
+        raise gr.Error(f"'{song_label}' isn't ready yet — assets/{song}/ is missing one or more files (prompt.wav, prompt.json, chorus_target.json, accompaniment.wav).")
     n_steps_i = int(n_steps)
     # Fast path: serve straight from cache (no GPU allocation, no quota).
-    from singer import _cache_key, ASSETS, WORK
+    from singer import _cache_key, cache_dir, WORK
     key = _cache_key(syllables, n_steps_i, melisma_mode)
-    for candidate in (ASSETS / "cache" / f"{key}_cover.wav",
-                      WORK / f"{key}_cover.wav"):
+    for candidate in (cache_dir(song) / f"{key}_cover.wav",
+                      WORK / song / f"{key}_cover.wav"):
         if candidate.exists():
             progress(1.0, desc="cache hit")
             return str(candidate)
     # Slow path: invoke SoulX (will allocate GPU on Spaces).
     try:
         progress(0.1, desc=f"invoking SoulX (n_steps={n_steps_i}, melisma={melisma_mode})")
-        wav = _gpu_render(syllables, n_steps_i, melisma_mode)
+        wav = _gpu_render(syllables, n_steps_i, melisma_mode, song)
     except Exception as exc:  # surface SoulX/ffmpeg errors clearly
         traceback.print_exc()
         raise gr.Error(f"Render failed: {exc}") from exc
@@ -64,11 +84,13 @@ def go(s1: str, s2: str, s3: str, s4: str, n_steps: int, melisma_mode: str,
 
 
 PRESETS = {
-    "bue-nos di-as":     ("bue", "nos", "di", "as"),
-    "bue-nas tar-des":   ("bue", "nas", "tar", "des"),
-    "hap-pee birth-day": ("hap", "pee", "birth", "day"),
-    "llue-ve mu-cho":    ("llue", "ve", "mu", "cho"),
-    "syn-thet tic-voice": ("syn", "thet", "tic", "voice"),
+    "bue-nos di-as":      ("bue", "nos", "di", "as"),
+    "mu-chos di-as":      ("mu", "chos", "di", "as"),
+    "hap-pee birth-day":  ("hap", "pee", "birth", "day"),
+    "mu-chas tar-des":    ("mu", "chas", "tar", "des"),
+    "llue-ve mu-cho":     ("llue", "ve", "mu", "cho"),
+    "bue-nas tar-des":    ("bue", "nas", "tar", "des"),
+    "hoy-no llue-ve":     ("hoy", "no", "llue", "ve"),
 }
 
 CSS = """
@@ -79,8 +101,17 @@ CSS = """
 with gr.Blocks(title="AIchael Jackson") as demo:
     gr.Markdown(
         "# 🎤 AIchael Jackson\n"
-        "**🤖 AIchael Jackson sings four syllables of your choice on the Thriller chorus melody 🧟**",
+        "**🤖 AIchael Jackson sings four syllables of your choice on a chosen MJ chorus melody 🧟**",
         elem_id="title",
+    )
+    ready_songs = [label for label, key in SONGS.items() if _song_ready(key)]
+    wip_songs   = [label for label, key in SONGS.items() if not _song_ready(key)]
+    song = gr.Dropdown(
+        choices=ready_songs,
+        value=ready_songs[0],
+        label="Song",
+        info="Which MJ chorus to sing your syllables on."
+             + (f"  (Coming soon: {', '.join(wip_songs)})" if wip_songs else ""),
     )
     with gr.Row():
         s1 = gr.Textbox(value="bue", label="syllable 1", max_lines=1, scale=1, interactive=True)
@@ -121,7 +152,7 @@ with gr.Blocks(title="AIchael Jackson") as demo:
         elem_id="footer",
     )
 
-    btn.click(go, inputs=[s1, s2, s3, s4, n_steps, melisma_mode], outputs=out, show_progress="full")
+    btn.click(go, inputs=[s1, s2, s3, s4, n_steps, melisma_mode, song], outputs=out, show_progress="full")
 
     # Preset buttons → fill the 4 syllable boxes (boxes remain editable after).
     for button, (_, syllables) in zip(preset_buttons, PRESETS.items()):

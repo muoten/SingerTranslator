@@ -32,8 +32,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import singer
 
-CACHE_DIR = Path("/var/folders/kp/b53jtvb57nv_hkqnj76mdd2w0000gn/T/singer_renders")
-BAKED_DIR = Path(singer.__file__).parent / "assets" / "cache"
+SONG = "thriller"  # multi-song support: parameterize when sweeping other songs
+CACHE_DIR = singer.WORK / SONG
+BAKED_DIR = singer.cache_dir(SONG)
 N_STEPS = 16
 
 

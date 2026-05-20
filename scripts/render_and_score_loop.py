@@ -39,9 +39,10 @@ PHRASES_LIST = [
     ("muchos_dias",    ["mu", "chos", "di", "as"]),
     ("muchas_tardes",  ["mu", "chas", "tar", "des"]),
     ("hoy_no_llueve",  ["hoy", "no", "llue", "ve"]),
+    ("muchas_gracias", ["mu", "chas", "gra", "cias"]),
 ]
 
-SEEDS_NEW = [27, 28, 29, 30, 31, 32, 33]   # new seeds per (phrase, thr) per invocation
+SEEDS_NEW = list(range(0, 16))   # new seeds per (phrase, thr) per invocation
 THRESHOLDS = [0.20, 0.30, 0.40]
 STD = {0.20, 0.30, 0.40}
 
@@ -58,26 +59,28 @@ def render(sylls, thr, seed):
 
 
 def score_phrase(phrase, sylls, proc, mdl):
+    """Score the full pool for a phrase from cache (wavs optional).
+    For deleted wavs whose cache survives, the metric still ranks them."""
     lang = erl.PHRASES[phrase]["lang"]
     lang_cfg = erl.LANG_CONFIGS[lang]
     phrase_unique = len(set(sylls))
-    prefix = erl.PHRASES[phrase]["prefix"]
-    hyp_prefix = f"aichael_{'_'.join(sylls)}_HYPOTHESIS"
-    pool = set()
-    for pre in {prefix, hyp_prefix}:
-        for p in DL.glob(f"{pre}_thr*_seed*.wav"):
-            m = re.search(r"_thr(\d+)_seed", p.name)
-            if m and int(m.group(1))/100 in STD:
-                pool.add((p, int(m.group(1))/100))
     best = None
-    for fpath, thr in pool:
+    for fpath, thr in erl.iter_pool_for_phrase(phrase, DL, thresholds=STD):
+        cached = erl._load_cached(fpath)
+        if cached is not None and "hyp_per_window" in cached and "duration_sec" in cached:
+            hyp_per_w = cached["hyp_per_window"]
+            win_len = cached["duration_sec"] / erl.N_W
+        else:
+            # Need to read wav (cache miss or pre-migration). Skip if missing.
+            if not fpath.exists():
+                continue
+            audio, sr = sf.read(str(fpath), dtype="float32")
+            if audio.ndim > 1: audio = audio.mean(axis=1)
+            if sr != 16000:
+                audio = sps.resample_poly(audio, 16000, sr); sr = 16000
+            hyp_per_w = erl._hyp_per_window(proc, mdl, audio, sr, fpath)
+            win_len = len(audio) / erl.N_W / sr
         slots = erl.build_slots(sylls, thr)
-        audio, sr = sf.read(str(fpath), dtype="float32")
-        if audio.ndim > 1: audio = audio.mean(axis=1)
-        if sr != 16000:
-            audio = sps.resample_poly(audio, 16000, sr); sr = 16000
-        hyp_per_w = erl._hyp_per_window(proc, mdl, audio, sr, fpath)
-        win_len = len(audio) / erl.N_W / sr
         ws = []; unique_seen = set()
         for w in range(erl.N_W):
             ws_s, we_s = w*win_len, (w+1)*win_len
@@ -89,7 +92,6 @@ def score_phrase(phrase, sylls, proc, mdl):
             prec = 0.0 if len(hyp) < 6 else consumed / len(hyp)
             ws.append((cov * prec) ** 0.5)
             unique_seen.update(names)
-        # W1-doubled geom (matches eval_rerank_lang).
         geom = (ws[0]*ws[0]*ws[1]*ws[2]*ws[3]) ** 0.2
         pcov = len(unique_seen) / phrase_unique
         new = geom * pcov

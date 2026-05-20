@@ -26,10 +26,14 @@ import eval_rerank_lang as erl
 # regressions, as observed 2026-05-14).
 BAKES = {
     "buenos_dias":     ("64f4f7bb8b14f1aa", 0.30, "bue-nos di-as"),
-    "happy_birthday":  ("932f839b4a224606", 0.30, "hap-pee birth-day"),
-    "buenas_tardes":   ("a92d6bb1a4a3a99c", 0.20, "bue-nas tar-des"),
+    "muchos_dias":     ("85f50387269dcb50", 0.20, "mu-chos di-as"),
+    "happy_birthday":  ("932f839b4a224606", 0.20, "hap-pee birth-day"),
+    "muchas_tardes":   ("be5fe87d8876d288", 0.30, "mu-chas tar-des"),
     "llueve_mucho":    ("a0a62483c200280f", 0.20, "llue-ve mu-cho"),
-    # buenas_noches and mola_mazo are not currently baked — skipped.
+    "buenas_tardes":   ("a92d6bb1a4a3a99c", 0.30, "bue-nas tar-des"),
+    "hoy_no_llueve":   ("326efd7d85265797", 0.20, "hoy-no llue-ve"),
+    # Excluded (top-7 cutoff is stricter than >0.36 threshold):
+    # buenas_noches (0.364, rank 8), mola_mucho (0.350), mola_mazo (0.324), muchas_gracias (0.227)
 }
 
 # 0.85 = "still within 15% of the new top". Below this, the metric has
@@ -93,7 +97,7 @@ def main():
     print("-" * 60)
     failures = []
     for phrase, (key, source_thr, label) in BAKES.items():
-        baked = Path(singer.__file__).parent / "assets" / "cache" / f"{key}_cover.wav"
+        baked = singer.cache_dir("thriller") / f"{key}_cover.wav"
         if not baked.exists():
             print(f"{phrase:<18}  (no bake at {baked.name})")
             continue

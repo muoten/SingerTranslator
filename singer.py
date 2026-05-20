@@ -34,10 +34,16 @@ SOULX_ROOT = Path(os.environ.get("SOULX_ROOT", str(ROOT / "vendor" / "SoulX-Sing
 WORK = Path(os.environ.get("SINGER_WORK_DIR", os.path.join(tempfile.gettempdir(), "singer_renders")))
 WORK.mkdir(parents=True, exist_ok=True)
 
-PROMPT_WAV   = ASSETS / "prompt.wav"
-PROMPT_META  = ASSETS / "prompt.json"
-TEMPLATE     = ASSETS / "chorus_target.json"   # notes/timings/types from MJ chorus
-ACCOMP_WAV   = ASSETS / "accompaniment.wav"
+DEFAULT_SONG = "thriller"
+
+def song_dir(song: str) -> Path:
+    return ASSETS / song
+
+def prompt_wav(song: str = DEFAULT_SONG) -> Path:    return song_dir(song) / "prompt.wav"
+def prompt_meta(song: str = DEFAULT_SONG) -> Path:   return song_dir(song) / "prompt.json"
+def template_json(song: str = DEFAULT_SONG) -> Path: return song_dir(song) / "chorus_target.json"
+def accomp_wav(song: str = DEFAULT_SONG) -> Path:    return song_dir(song) / "accompaniment.wav"
+def cache_dir(song: str = DEFAULT_SONG) -> Path:     return song_dir(song) / "cache"
 
 PLOSIVES = {"B", "P", "T", "K", "D", "G"}
 
@@ -82,6 +88,12 @@ SYLLABLE_OVERRIDES: dict[str, str] = {
     # and /tʃas/ with unvoiced final /s/ and Spanish /a/ via AA1.
     "chos": "en_CH-OW1-S",
     "chas": "en_CH-AA1-S",
+    # muchas gracias (Spanish):
+    #   'gra' = /gɾa/ — Spanish tap /ɾ/. ARPABET R between G and AA1 puts
+    #            /r/ intervocalically, which English speakers tap naturally.
+    #   'cias' = /θjas/ in Castilian — TH + Y (palatal glide) + AA1 + S.
+    "gra":   "en_G-R-AA1",
+    "cias":  "en_TH-Y-AA1-S",
 }
 
 # ---------------- phoneme helpers ------------------------------------------
@@ -145,7 +157,8 @@ DEFAULT_AUTO_MELISMA_DUR = 0.30    # in 'default' mode, also auto-melisma slots
 
 
 def build_target_metadata(syllables: Sequence[str], out_path: Path,
-                          melisma_mode: str = "default") -> Path:
+                          melisma_mode: str = "default",
+                          song: str = DEFAULT_SONG) -> Path:
     """Build a SoulX target_metadata.json by cyclically mapping `syllables`
     onto the chorus template.
 
@@ -165,7 +178,7 @@ def build_target_metadata(syllables: Sequence[str], out_path: Path,
     if melisma_mode not in ("off", "default"):
         raise ValueError(f"unknown melisma_mode {melisma_mode!r}")
 
-    template = json.loads(TEMPLATE.read_text())
+    template = json.loads(template_json(song).read_text())
     item = template[0]
 
     def _split(field):
@@ -274,7 +287,8 @@ def _detect_device() -> str:
 
 
 def soulx_render(target_meta: Path, save_dir: Path,
-                 n_steps: int | None = None, seed: int | None = None) -> Path:
+                 n_steps: int | None = None, seed: int | None = None,
+                 song: str = DEFAULT_SONG) -> Path:
     """Invoke SoulX cli.inference; returns the produced generated.wav path.
 
     n_steps: number of CFM diffusion steps. None = use config default (32).
@@ -287,8 +301,8 @@ def soulx_render(target_meta: Path, save_dir: Path,
         "--device", device,
         "--model_path", str(SOULX_ROOT / "pretrained_models/SoulX-Singer/model.pt"),
         "--config",     str(SOULX_ROOT / "soulxsinger/config/soulxsinger.yaml"),
-        "--prompt_wav_path",      str(PROMPT_WAV),
-        "--prompt_metadata_path", str(PROMPT_META),
+        "--prompt_wav_path",      str(prompt_wav(song)),
+        "--prompt_metadata_path", str(prompt_meta(song)),
         "--target_metadata_path", str(target_meta),
         "--phoneset_path", str(SOULX_ROOT / "soulxsinger/utils/phoneme/phone_set.json"),
         "--save_dir", str(save_dir),
@@ -309,10 +323,11 @@ def soulx_render(target_meta: Path, save_dir: Path,
 # ---------------- ffmpeg mix -----------------------------------------------
 
 def mix_with_accompaniment(vocal: Path, out_path: Path,
-                           voc_gain: float = 1.2, acc_gain: float = 0.9) -> Path:
+                           voc_gain: float = 1.2, acc_gain: float = 0.9,
+                           song: str = DEFAULT_SONG) -> Path:
     cmd = [
         "ffmpeg", "-y",
-        "-i", str(ACCOMP_WAV),
+        "-i", str(accomp_wav(song)),
         "-i", str(vocal),
         "-filter_complex",
         f"[0:a]volume={acc_gain}[acc]; [1:a]volume={voc_gain}[voc]; "
@@ -341,7 +356,8 @@ def _cache_key(syllables: Sequence[str], n_steps: int | None,
 
 
 def render(syllables: Sequence[str], n_steps: int | None = None,
-           melisma_mode: str = "default", seed: int | None = None) -> str:
+           melisma_mode: str = "default", seed: int | None = None,
+           song: str = DEFAULT_SONG) -> str:
     """Render `syllables` (e.g. ['bue','nos','di','as']) into a mixed cover wav.
 
     n_steps: CFM diffusion steps. None = SoulX default (32). 8 ≈ 4× faster, 64 ≈ 2× slower.
@@ -357,26 +373,28 @@ def render(syllables: Sequence[str], n_steps: int | None = None,
         raise ValueError("provide at least one non-empty syllable")
 
     key = _cache_key(syllables, n_steps, melisma_mode)
-    # Layer 1: assets/cache — baked into the repo so popular presets are
+    # Layer 1: assets/{song}/cache — baked into the repo so popular presets are
     # served instantly without burning ZeroGPU quota on the first visitor.
-    baked = ASSETS / "cache" / f"{key}_cover.wav"
+    baked = cache_dir(song) / f"{key}_cover.wav"
     if baked.exists():
         print(f"[render] baked cache hit: {baked}")
         return str(baked)
     # Layer 2: per-container working dir — populated on the fly during the
-    # container's lifetime; resets on rebuild.
-    cached = WORK / f"{key}_cover.wav"
+    # container's lifetime; resets on rebuild. Song-scoped to avoid cross-song
+    # collisions on identical syllables.
+    cached = WORK / song / f"{key}_cover.wav"
+    cached.parent.mkdir(parents=True, exist_ok=True)
     if cached.exists():
         print(f"[render] runtime cache hit: {cached}")
         return str(cached)
 
-    job_dir = WORK / key
+    job_dir = WORK / song / key
     job_dir.mkdir(parents=True, exist_ok=True)
     target_meta = build_target_metadata(syllables, job_dir / "target.json",
-                                        melisma_mode=melisma_mode)
+                                        melisma_mode=melisma_mode, song=song)
     vocal       = soulx_render(target_meta, job_dir / "vocal",
-                                n_steps=n_steps, seed=seed)
-    mixed       = mix_with_accompaniment(vocal, cached)
+                                n_steps=n_steps, seed=seed, song=song)
+    mixed       = mix_with_accompaniment(vocal, cached, song=song)
     return str(mixed)
 
 
