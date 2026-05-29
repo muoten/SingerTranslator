@@ -34,7 +34,7 @@ except ImportError:
 # Add new songs here once their assets/{key}/ directory exists.
 SONGS = {
     "Thriller":               "thriller",
-    "Billie Jean (WIP)":      "billie_jean",
+    "Billie Jean":            "billie_jean",
 }
 
 
@@ -84,13 +84,14 @@ def go(s1: str, s2: str, s3: str, s4: str, n_steps: int, melisma_mode: str,
 
 
 PRESETS = {
+    # Order = sum of wav2vec2-phoneme scores across Thriller + Billie Jean (high → low).
     "bue-nos di-as":      ("bue", "nos", "di", "as"),
-    "mu-chos di-as":      ("mu", "chos", "di", "as"),
     "hap-pee birth-day":  ("hap", "pee", "birth", "day"),
-    "mu-chas tar-des":    ("mu", "chas", "tar", "des"),
-    "llue-ve mu-cho":     ("llue", "ve", "mu", "cho"),
     "bue-nas tar-des":    ("bue", "nas", "tar", "des"),
     "hoy-no llue-ve":     ("hoy", "no", "llue", "ve"),
+    "mu-chos di-as":      ("mu", "chos", "di", "as"),
+    "mu-chas tar-des":    ("mu", "chas", "tar", "des"),
+    "llue-ve mu-cho":     ("llue", "ve", "mu", "cho"),
 }
 
 CSS = """
@@ -147,7 +148,7 @@ with gr.Blocks(title="AIchael Jackson") as demo:
     out = gr.Audio(label="Result", autoplay=False, type="filepath")
     gr.Markdown(
         "Renders take ~2 min on CPU (≈15 s on GPU). Click once and wait — "
-        "the four syllables are cycled across 26 sung slots of the chorus, "
+        "the four syllables are cycled across the chorus's sung slots, "
         "preserving AIchael's note timings.",
         elem_id="footer",
     )
