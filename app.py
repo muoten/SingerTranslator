@@ -84,14 +84,14 @@ def go(s1: str, s2: str, s3: str, s4: str, n_steps: int, melisma_mode: str,
 
 
 PRESETS = {
-    # Order = sum of wav2vec2-phoneme scores across Thriller + Billie Jean (high → low).
-    "bue-nos di-as":      ("bue", "nos", "di", "as"),
+    # Order = geomean of single-seed perceived score across Thriller + Billie Jean (high → low).
+    # Validated 2026-05-31 with K_SKIP=1 + ENGLISH_EQUIV bridges (ʌ↔ɑ, z↔s).
     "hap-pee birth-day":  ("hap", "pee", "birth", "day"),
+    "mu-chos di-as":      ("mu", "chos", "di", "as"),
+    "bue-nos di-as":      ("bue", "nos", "di", "as"),
     "bue-nas tar-des":    ("bue", "nas", "tar", "des"),
     "hoy-no llue-ve":     ("hoy", "no", "llue", "ve"),
-    "mu-chos di-as":      ("mu", "chos", "di", "as"),
-    "mu-chas tar-des":    ("mu", "chas", "tar", "des"),
-    "llue-ve mu-cho":     ("llue", "ve", "mu", "cho"),
+    "sum-mer time-is":    ("sum", "mer", "time", "is"),
 }
 
 CSS = """
