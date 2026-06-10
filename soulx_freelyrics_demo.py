@@ -130,7 +130,7 @@ def build():
     with gr.Blocks(title="AIchael Jackson", css="#aj-title{text-align:center}") as demo:
         gr.Markdown(
             "# 🎤 AIchael Jackson\n"
-            "**🤖 AIchael Jackson sings the words *you* write on an MJ chorus melody 🧟**",
+            "**🤖 Put *your* lyrics into the chorus of his songs 🧟**",
             elem_id="aj-title",
         )
         song = gr.Dropdown(choices=list(SONGS), value=first_label, label="🎵 Song",
