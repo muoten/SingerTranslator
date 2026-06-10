@@ -7,7 +7,7 @@ sdk: gradio
 python_version: "3.11"
 app_file: app.py
 pinned: false
-short_description: AIchael sings 4 syllables on Thriller's chorus
+short_description: Put your lyrics into the chorus of MJ's songs
 suggested_hardware: zero-a10g
 ---
 
@@ -18,20 +18,23 @@ most music AIs don't expose. This repo is the rendering pipeline behind the
 **AIchael Jackson** demo at [aichaeljackson.com](https://aichaeljackson.com)
 (HF Space: [muoten/aichael-jackson](https://huggingface.co/spaces/muoten/aichael-jackson)).
 
-You type 4 syllables. The pipeline:
+You pick a song (**Thriller** or **Billie Jean**) and write your own lyric — one
+line per chorus phrase, each word matching the syllable count of the slot it
+replaces. The pipeline:
 
-1. Loads a frozen *score* (notes + timing) extracted from MJ's actual Thriller
-   chorus via [Demucs](https://github.com/facebookresearch/demucs) +
+1. Loads a frozen *score* (notes + timing) extracted from MJ's actual chorus
+   via [Demucs](https://github.com/facebookresearch/demucs) +
    [Whisper](https://github.com/openai/whisper) +
    [ROSVOT](https://github.com/RickyL-2000/ROSVOT) preprocessing.
-2. Cycles your 4 syllables across the 36 sung slots of the chorus, preserving
-   notes, durations, and held-vowel melismas.
+2. Maps your words onto the chorus's sung slots — one word per slot — preserving
+   the notes, durations, and held-vowel melismas, so the melody, pitch and
+   timing stay locked.
 3. Asks [SoulX-Singer](https://github.com/Soul-AILab/SoulX-Singer) to
    synthesize the voice using a clip of MJ's actual chorus as the timbre
    prompt (so the resulting voice sounds like MJ).
-4. Mixes the synthesized vocal with the original Thriller accompaniment.
+4. Mixes the synthesized vocal with the original accompaniment.
 
-Result: 16 seconds of synthetic cover with your syllables on MJ's chorus.
+Result: ~16 seconds of synthetic cover with *your* lyric on MJ's chorus.
 
 ## Why this exists
 
@@ -55,9 +58,11 @@ on top:
 
 ## Demo (no install needed)
 
-Visit [aichaeljackson.com](https://aichaeljackson.com) → type 4 syllables →
-hit "Make AIchael sing it". Presets: `bue-nos di-as`, `hap-pee birth-day`,
-`syn-thet tic-voice`. ~15s per render on the Space's GPU.
+Visit [aichaeljackson.com](https://aichaeljackson.com) → pick a song → write your
+lyric to match the per-line syllable guide → hit "Make AIchael sing it". The two
+default lyrics are pre-cached for instant playback; a fresh lyric renders in ~15s
+on the Space's GPU (~2 min on CPU). Identical (song + lyric + settings) requests
+are cached, so repeats are free.
 
 ## Local install
 
@@ -77,61 +82,60 @@ on HF Spaces).
 ### Pipeline at runtime
 
 ```
-[user types 4 syllables]
+[user picks a song + writes a lyric]
         |
-        | singer.build_target_metadata()
-        |   - g2p_en → phonemes per syllable
-        |   - SYLLABLE_OVERRIDES for known Spanish syllables
-        |   - apply double-plosive recipe to slot 1
-        |   - assign syllables cyclically to 36 slots
-        |   - auto-melisma slots shorter than 0.30s
+        | soulx_freelyrics.build_target(words, song)
+        |   - g2p per word (singer.syllable_to_phoneme)
+        |   - map one word per sung slot (syllable-checked)
+        |   - keep grid notes / durations / held-vowel melismas
+        |   - optional onset-reinforce recipe (off by default)
         v
 [target_metadata.json]
         |
         | singer.soulx_render()  →  SoulX CLI inference
-        |   - prompt_wav: assets/prompt.wav (MJ chorus 121.5-135.5s)
-        |   - prompt_metadata: assets/prompt.json
+        |   - prompt_wav: assets/<song>/prompt.wav (MJ chorus, timbre prompt)
+        |   - prompt_metadata: assets/<song>/prompt.json
         |   - target_metadata: above
-        |   - --n_steps 16, --seed 100, --pitch_shift 0
+        |   - --n_steps, --seed 0, --pitch_shift 0
         v
-[generated.wav]  (16s sung vocal)
+[generated.wav]  (~16s sung vocal)
         |
-        | ffmpeg mix with assets/accompaniment.wav
+        | ffmpeg mix with assets/<song>/accompaniment.wav
         v
-[cover.wav]
+[cover.wav]  (cached under assets/<song>/cache/)
 ```
 
 ### Score data (frozen)
 
-The chorus score in `assets/chorus_target.json` was built once and ships with
-the repo. It came from:
+Each song's chorus score in `assets/<song>/chorus_target.json` was built once
+and ships with the repo. For Thriller it came from:
 
 1. `vocals.wav` of Thriller, isolated by Demucs.
 2. Slice 120-136s (the chorus instance we picked).
 3. Whisper-large transcribed the words; ROSVOT transcribed the notes.
-4. SoulX preprocess merged them into 34 slots.
-5. Manual surgical fix: split one over-merged 1.66s "thriller" slot into 3
-   (B4 fresh, rest, B4 fresh) and demoted two spurious melismas. Final: 36
-   slots in `chorus_target.json`.
+4. SoulX preprocess merged them into ~34 slots.
+5. Manual surgical fix to split over-merged slots and demote spurious melismas.
 
-The timbre prompt `assets/prompt.wav` is the same chorus offset by 1.5s
-(121.5-135.5s) to avoid an audio-leakage failure mode in SoulX where the
+Billie Jean's chorus score was built the same way (its multitracked chorus made
+F0 noisier — see the build history). The timbre prompt `assets/<song>/prompt.wav`
+is the same chorus offset by ~1.5s to avoid an audio-leakage failure mode in
+SoulX where the
 output mimics the prompt audio when prompt and target derive from the same
 clip.
 
 ### Tunable parameters
 
-`singer.render()` exposes:
+The demo (`soulx_freelyrics_demo.py`) exposes:
 
-- `syllables: list[str]` — the 4 syllables.
-- `n_steps: int` — CFM diffusion steps (default 16). Lower = faster, rougher.
-- `melisma_mode: 'off' | 'default'` — whether to honour the metadata's tied
-  notes as held vowels (default) or force every slot to fresh syllable (off).
-- `seed: int | None` — pinned `torch.manual_seed` for reproducible audio.
+- **song** — which chorus to sing on (`thriller` / `billie_jean`).
+- **lyric** — one line per chorus phrase; each word's syllable count must match
+  its slot (the UI shows a live syllable check).
+- **n_steps** — CFM diffusion steps (default 32). Lower = faster, rougher.
+- **reinforce weak onsets** — doubles weak HH/R/L onsets and clusters. Off by
+  default (it tested net-negative on most words).
 
-The shipped buenos dias preset uses `seed=100`, picked from a 5-seed sweep
-scored on coverage × phonetic similarity against a Whisper unprompted
-transcription.
+Renders use `seed=0`. To add a song, drop its four assets under
+`assets/<song>/` and register a note-mapping `ORDER` in `soulx_freelyrics.py`.
 
 ### Phonetic learnings (English g2p approximating Spanish)
 
@@ -155,21 +159,19 @@ discussion in `feedback_preferences.md` for the methodology.
 
 ```
 .
-├── app.py                       — Gradio UI (the demo)
-├── singer.py                    — render() + build_target_metadata()
+├── app.py                       — HF Space entry: bootstrap + launch the demo
+├── soulx_freelyrics_demo.py     — Gradio UI (song picker, lyric box, render+cache)
+├── soulx_freelyrics.py          — per-song engine: word→slot mapping, syllable check
+├── singer.py                    — soulx_render(), g2p, mixing, helpers
 ├── bootstrap_soulx.py           — downloads weights + NLTK on first run
-├── build_buenos_dias.py         — script that built the buenos dias metadata
-├── run_preproc_with_whisper.py  — full preproc (Demucs+Whisper+ROSVOT)
-├── swap_word.py                 — legacy: replace a word in metadata
-├── split_word.py                — legacy: split a word across slots
-├── scripts/sing.sh              — SoulX CLI wrapper
 ├── assets/
-│   ├── chorus_target.json       — frozen 36-slot Thriller chorus score
-│   ├── prompt.wav               — MJ chorus 121.5-135.5s (timbre prompt)
-│   ├── prompt.json              — matching metadata for prompt.wav
-│   ├── accompaniment.wav        — Thriller chorus instrumental (16s)
-│   └── cache/                   — baked preset outputs
-├── data/                        — backup copies of frozen metadata
+│   ├── thriller/  &  billie_jean/
+│   │   ├── chorus_target.json       — frozen chorus score (notes + timing)
+│   │   ├── prompt.wav / prompt.json — MJ chorus timbre prompt + metadata
+│   │   ├── accompaniment.wav        — chorus instrumental (~16s)
+│   │   └── cache/                   — rendered covers (incl. pre-baked defaults)
+│   └── billie_jean/freelyric_reference.json  — per-phrase reference words
+├── scripts/                     — eval / scoring tooling (not needed to run the app)
 ├── vendor/SoulX-Singer/         — submodule: muoten fork with --n_steps + --seed
 └── examples/                    — milestone outputs from the build history
 ```
@@ -188,6 +190,6 @@ Otherwise it tracks upstream `Soul-AILab/SoulX-Singer`.
 
 ## License
 
-Code under MIT. The `assets/prompt.wav`, `assets/accompaniment.wav`, and
-cached preset wavs are derivatives of Michael Jackson's "Thriller" and are
-included for demonstration purposes only.
+Code under MIT. The per-song `prompt.wav`, `accompaniment.wav`, and cached cover
+wavs under `assets/<song>/` are derivatives of Michael Jackson recordings
+("Thriller", "Billie Jean") and are included for demonstration purposes only.
