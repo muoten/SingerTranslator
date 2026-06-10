@@ -46,6 +46,16 @@ def accomp_wav(song: str = DEFAULT_SONG) -> Path:    return song_dir(song) / "ac
 def cache_dir(song: str = DEFAULT_SONG) -> Path:     return song_dir(song) / "cache"
 
 PLOSIVES = {"B", "P", "T", "K", "D", "G"}
+VOWELS = {"AA", "AE", "AH", "AO", "AW", "AY", "EH", "ER", "EY",
+          "IH", "IY", "OW", "OY", "UH", "UW"}
+# Onsets SoulX (Mandarin-primary) swallows on English (2026-06-09 articulation
+# diagnosis via wav2vec2-960h CTC oracle): heat HH->"heap"(swallowed), rise R->lost,
+# living L->lost. Reinforced by doubling so the model gives them more attack time.
+WEAK_ONSETS = {"HH", "R", "L"}
+GLIDES = {"W", "Y"}            # measured 2026-06-09: ~27% recovery (the wander->"gonna" class)
+DIPHTHONGS = {"AY", "AW", "OY", "EY", "OW"}
+FRICATIVES = {"F", "V", "TH", "DH", "S", "Z", "SH", "ZH", "HH"}
+VOICED_PLOSIVES = {"B", "D", "G"}
 
 # Manual phoneme overrides for known syllables where g2p_en's English-only
 # pronunciation would be wrong (mostly Spanish, but extensible).
@@ -144,6 +154,79 @@ def double_plosive_if_needed(phoneme: str) -> str:
     if not parts or parts[0] not in PLOSIVES:
         return phoneme
     return "en_" + "-".join([parts[0]] + parts)
+
+
+def reinforce_onset(phoneme: str) -> str:
+    """General articulation recipe: DOUBLE the syllable's onset consonant so SoulX
+    gives it more attack time (SoulX allocates duration per dash-separated phone).
+
+    Generalizes double_plosive_if_needed using the 2026-06-09 CTC-oracle diagnosis:
+      - leading plosive (B/P/T/K/D/G): doubled (milestone-13 recipe; also fixes
+        cluster onsets like dreams D-R-... -> D-D-R-...).
+      - leading WEAK onset (HH/R/L): doubled — these get swallowed (heat, rise, living).
+      - leading-schwa words (about = AH0-B-AW1-T): double the FIRST consonant AFTER
+        the schwa so it survives ("a-bout" not "a-out"), WITHOUT dropping the schwa
+        (user wants 'about', not 'bout').
+    Fricative/nasal/glide onsets (S, F, N, W, Y...) articulate fine -> left untouched
+    so already-good words are not degraded.
+    """
+    parts = phoneme.removeprefix("en_").split("-")
+    for i, p in enumerate(parts):
+        base = p.rstrip("012")
+        if base in VOWELS:
+            continue  # skip a leading vowel/schwa to reach the onset consonant
+        nxt = parts[i + 1].rstrip("012") if i + 1 < len(parts) else ""
+        is_cluster = bool(nxt) and nxt not in VOWELS  # onset is part of a consonant cluster
+        if base in WEAK_ONSETS:
+            double = True                       # heat HH, rise R, living L — always swallowed
+        elif base in PLOSIVES and (is_cluster or i > 0):
+            double = True                       # cluster onset (dreams D-R) or post-schwa (about B)
+        else:
+            double = False                      # lone plosive (take T) / fricative / nasal -> fine
+        return "en_" + "-".join(parts[:i] + [p] + parts[i:]) if double else phoneme
+    return phoneme  # all-vowel syllable
+
+
+def word_difficulty(word: str) -> tuple[int, list[str]]:
+    """Estimate how hard a word is for SoulX to articulate in English, BEFORE rendering.
+
+    Grounded in the 2026-06-09 MEASURED articulation map (observe_articulation.py;
+    recovery rates from real renders, low=hard). Onset class (mutually exclusive):
+      vowel-lead ANY vowel  ~30%  +2   is/under/on/of/a... (broader than just schwa+plosive)
+        + a following voiced plosive (about) +1   the 0% worst shape
+      glide onset W/Y       ~27%  +2   MEASURED: wander->"gonna" (intuition had missed this)
+      weak onset HH/R/L     ~33%  +2   heat/rise/living
+    Plus, additively:
+      consonant-cluster onset ~67% +1   moderate drag
+      diphthong (AY/AW/EY/OW/OY) ~59% +1
+      diphthong + final fricative ~25% +1   end gets lost (rise/days)
+    Returns (score, reasons). Buckets: 0-1 green, 2-3 yellow, 4+ red.
+    """
+    parts = [p.rstrip("012") for p in syllable_to_phoneme(word).removeprefix("en_").split("-") if p]
+    if not parts:
+        return 0, []
+    score, reasons, o = 0, [], parts[0]
+    if o in WEAK_ONSETS:
+        score += 2; reasons.append(f"weak onset {o}")
+    elif o in GLIDES:
+        score += 2; reasons.append(f"glide onset {o}")
+    elif o in VOWELS:
+        score += 2; reasons.append("vowel-lead")
+        if len(parts) > 1 and parts[1] in VOICED_PLOSIVES:
+            score += 1; reasons.append("+voiced-plosive (about-type)")
+    onset_cons = 0
+    for p in parts:
+        if p in VOWELS:
+            break
+        onset_cons += 1
+    if onset_cons >= 2:
+        score += 1; reasons.append("cluster onset")
+    dips = [p for p in parts if p in DIPHTHONGS]
+    if dips:
+        score += 1; reasons.append(f"diphthong {dips[0]}")
+        if parts[-1] in FRICATIVES:
+            score += 1; reasons.append("diphthong+final-fricative")
+    return score, reasons
 
 # ---------------- metadata builder -----------------------------------------
 

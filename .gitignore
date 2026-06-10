@@ -5,3 +5,40 @@ examples/*.wav
 examples/*/generated.wav
 examples/seedvc_*/
 sources/
+
+# Experiment logs & scratch output dirs
+*.log
+_tmp_*/
+_bsweep/
+_tmp_coverage/
+_tmp_observe/
+_tmp_onset_sweep/
+_tmp_soulx_reference/
+_tmp_utau_vc/
+_tmp_widen/
+preview_cache/
+
+# One-off experiment / build scripts (not part of the app)
+_bj_*.py
+_nh_sweep.py
+_render_*.py
+_splice_*.py
+build_*.py
+realign_metadata.py
+
+# Scratch lyric files
+lyric.txt
+_*.txt
+
+# Asset intermediates (not the live chorus_target.json / accompaniment.wav)
+assets/*/chorus_target.before_*.json
+assets/*/chorus_target.bleedy.json
+assets/*/chorus_target.some*.json
+assets/thriller/canonical_target.json
+assets/thriller/reference_target.json
+bytecover_progress.json
+livi_progress.json
+muq_progress.json
+
+# Model weights
+checkpoints/
