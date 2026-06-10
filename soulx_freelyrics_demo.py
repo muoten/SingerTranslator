@@ -19,8 +19,22 @@ import soulx_freelyrics as fl  # noqa: E402
 OUT = ROOT / "_tmp_freelyrics_demo"
 OUT.mkdir(exist_ok=True)
 
+# Optional HF Spaces ZeroGPU decorator. No-op when `spaces` isn't installed (local).
+try:
+    import spaces  # type: ignore
+    GPU = spaces.GPU(duration=int(os.environ.get("SINGER_GPU_DURATION", 120)))
+except ImportError:
+    def GPU(fn):  # type: ignore
+        return fn
+
 # Display label -> song key. Order = dropdown order.
 SONGS = {"Thriller": "thriller", "Billie Jean": "billie_jean"}
+
+
+@GPU
+def _gpu_render(tgt, out_dir, n_steps):
+    """GPU-bound SoulX inference, isolated so @spaces.GPU only wraps the heavy part."""
+    return singer.soulx_render(tgt, out_dir, n_steps=int(n_steps), seed=0)
 
 
 def header_md(song_key):
@@ -87,7 +101,7 @@ def render(text, name, reinforce, n_steps, song_label):
     name = (name or "demo").strip().replace(" ", "_") or "demo"
     stem = f"{song}_{name}"
     tgt = fl.build_target(words, OUT / f"{stem}_target.json", song=song, reinforce=bool(reinforce))
-    vocal = singer.soulx_render(tgt.resolve(), OUT.resolve(), n_steps=int(n_steps), seed=0)
+    vocal = _gpu_render(tgt.resolve(), OUT.resolve(), int(n_steps))
     vn = OUT / f"{stem}_vocal.wav"
     vn.write_bytes(Path(vocal).read_bytes())
     mix = singer.mix_with_accompaniment(vn, OUT / f"{stem}_mix.wav", song=song)
@@ -121,7 +135,7 @@ def build():
                     name = gr.Textbox(label="Name (output filename)", value="mytest")
                     reinforce = gr.Checkbox(
                         label="Reinforce weak onsets (double HH/R/L + clusters)",
-                        value=True)
+                        value=False)
                     n_steps = gr.Slider(20, 64, value=32, step=2,
                                         label="Diffusion steps (higher = cleaner, slower)")
         song.change(fn=on_song_change, inputs=song, outputs=[head, target, chk])
