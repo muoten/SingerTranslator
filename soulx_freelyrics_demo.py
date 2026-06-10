@@ -37,6 +37,15 @@ def _gpu_render(tgt, out_dir, n_steps):
     return singer.soulx_render(tgt, out_dir, n_steps=int(n_steps), seed=0)
 
 
+def _cache_key(song, lines, n_steps, reinforce):
+    """Stable hash of everything that affects the audio. Lyric is normalized on
+    words (case- and whitespace-insensitive) so trivial spacing doesn't miss."""
+    import hashlib
+    lyric = "/".join(" ".join(l.lower().split()) for l in lines)
+    norm = f"{song}|{lyric}::{int(n_steps)}::r{int(bool(reinforce))}"
+    return hashlib.sha256(norm.encode()).hexdigest()[:16]
+
+
 def header_md(song_key):
     return fl.template_md(song_key)
 
@@ -98,14 +107,20 @@ def render(text, name, reinforce, n_steps, song_label):
     ok, words = fl.check(lines, song)
     if not ok:
         raise gr.Error("Lyric doesn't fit the template — see the check panel.")
-    name = (name or "demo").strip().replace(" ", "_") or "demo"
-    stem = f"{song}_{name}"
-    tgt = fl.build_target(words, OUT / f"{stem}_target.json", song=song, reinforce=bool(reinforce))
+
+    # Cache by (song + lyric + n_steps + reinforce). A hit returns the saved wavs
+    # WITHOUT calling _gpu_render, so it never allocates the GPU (saves quota).
+    key = _cache_key(song, lines, n_steps, reinforce)
+    cdir = singer.cache_dir(song); cdir.mkdir(parents=True, exist_ok=True)
+    cmix, cvoc = cdir / f"fl_{key}_mix.wav", cdir / f"fl_{key}_vocal.wav"
+    if cmix.exists() and cvoc.exists():
+        return str(cmix), str(cvoc)
+
+    tgt = fl.build_target(words, OUT / f"fl_{key}_target.json", song=song, reinforce=bool(reinforce))
     vocal = _gpu_render(tgt.resolve(), OUT.resolve(), int(n_steps))
-    vn = OUT / f"{stem}_vocal.wav"
-    vn.write_bytes(Path(vocal).read_bytes())
-    mix = singer.mix_with_accompaniment(vn, OUT / f"{stem}_mix.wav", song=song)
-    return str(mix), str(vn)
+    cvoc.write_bytes(Path(vocal).read_bytes())
+    mix = singer.mix_with_accompaniment(cvoc, cmix, song=song)
+    return str(mix), str(cvoc)
 
 
 def build():
