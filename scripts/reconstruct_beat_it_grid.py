@@ -16,9 +16,12 @@ made by SPLITTING the existing rest, not adding time.
 Run: python3 scripts/reconstruct_beat_it_grid.py
 """
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+import singer  # noqa: E402  (for the per-song config: f0 clamp width)
 TGT = ROOT / "assets/beat_it/chorus_target.json"
 BAK = ROOT / "assets/beat_it/chorus_target.roformer_raw.json"
 
@@ -93,11 +96,14 @@ if dur[CAP_IDX] > CAP:
 #    semitones of its note's median: melody + gentle vibrato survive, only spikes are cut.
 import os
 import statistics
-# clamp width in semitones, from env so the sweep can vary it:
+# clamp width in semitones. Canonical value lives in assets/beat_it/config.json
+# (f0_clamp_semi); BEATIT_CLAMP_SEMI env still overrides it for sweeps.
 #   "raw"  -> no f0 change (keep extracted contour, spikes and all)
 #   "0"    -> flatten each note to its median (fully steady, can be robotic)
 #   <n>    -> clamp each voiced frame to within ±n semitones of its note median
-_CLAMP = os.environ.get("BEATIT_CLAMP_SEMI", "1.5").strip().lower()
+_cfg_clamp = singer.song_config("beat_it").get("f0_clamp_semi")
+_clamp_default = "raw" if _cfg_clamp is None else str(_cfg_clamp)
+_CLAMP = os.environ.get("BEATIT_CLAMP_SEMI", _clamp_default).strip().lower()
 f0 = [float(x) for x in item["f0"].split()]
 fps = len(f0) / sum(dur)
 onset = 0.0

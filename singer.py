@@ -44,6 +44,43 @@ def prompt_meta(song: str = DEFAULT_SONG) -> Path:   return song_dir(song) / "pr
 def template_json(song: str = DEFAULT_SONG) -> Path: return song_dir(song) / "chorus_target.json"
 def accomp_wav(song: str = DEFAULT_SONG) -> Path:    return song_dir(song) / "accompaniment.wav"
 def cache_dir(song: str = DEFAULT_SONG) -> Path:     return song_dir(song) / "cache"
+def config_json(song: str = DEFAULT_SONG) -> Path:   return song_dir(song) / "config.json"
+
+# ---------------- per-song config (single source of truth) ------------------
+# Every knob that varies per song lives in assets/<song>/config.json. Missing
+# keys fall back to these defaults, which reproduce the pre-config behaviour
+# (so a song without a config.json renders exactly as before).
+#   hold_dur       float|None  build_target long-note melisma cap (s); None=off
+#   f0_clamp_semi  float|None  build-time f0 despike clamp (semitones); None=raw
+#   mix.voc_gain   float       vocal gain in the ffmpeg mix
+#   mix.acc_gain   float       accompaniment gain in the ffmpeg mix
+#   mix.ceiling_db float|None  peak ceiling applied by the bake step; None=off
+#   trim           str|None    render trim recipe for the bake step; None=off
+#   accomp_len     float       chorus/accompaniment length (s), informational
+SONG_CONFIG_DEFAULTS: dict = {
+    "hold_dur": None,
+    "f0_clamp_semi": None,
+    "mix": {"voc_gain": 1.2, "acc_gain": 0.9, "ceiling_db": None},
+    "trim": None,
+    "accomp_len": None,
+}
+_song_config_cache: dict[str, dict] = {}
+
+
+def song_config(song: str = DEFAULT_SONG) -> dict:
+    """Return the merged per-song config (defaults <- assets/<song>/config.json)."""
+    if song not in _song_config_cache:
+        cfg = {**SONG_CONFIG_DEFAULTS, "mix": dict(SONG_CONFIG_DEFAULTS["mix"])}
+        p = config_json(song)
+        if p.exists():
+            user = json.loads(p.read_text())
+            for k, v in user.items():
+                if k == "mix" and isinstance(v, dict):
+                    cfg["mix"] = {**cfg["mix"], **v}
+                else:
+                    cfg[k] = v
+        _song_config_cache[song] = cfg
+    return _song_config_cache[song]
 
 PLOSIVES = {"B", "P", "T", "K", "D", "G"}
 VOWELS = {"AA", "AE", "AH", "AO", "AW", "AY", "EH", "ER", "EY",
@@ -406,8 +443,15 @@ def soulx_render(target_meta: Path, save_dir: Path,
 # ---------------- ffmpeg mix -----------------------------------------------
 
 def mix_with_accompaniment(vocal: Path, out_path: Path,
-                           voc_gain: float = 1.2, acc_gain: float = 0.9,
+                           voc_gain: float | None = None, acc_gain: float | None = None,
                            song: str = DEFAULT_SONG) -> Path:
+    # Gains default to the per-song config; an explicit arg still overrides it
+    # (e.g. a bake/sweep script passing tuned values).
+    mix_cfg = song_config(song)["mix"]
+    if voc_gain is None:
+        voc_gain = mix_cfg["voc_gain"]
+    if acc_gain is None:
+        acc_gain = mix_cfg["acc_gain"]
     cmd = [
         "ffmpeg", "-y",
         "-i", str(accomp_wav(song)),

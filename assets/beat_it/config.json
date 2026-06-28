@@ -1,0 +1,7 @@
+{
+  "hold_dur": 0.4,
+  "f0_clamp_semi": 1.5,
+  "mix": {"voc_gain": 0.6, "acc_gain": 0.8, "ceiling_db": -1.5},
+  "trim": "last_sung+0.2",
+  "accomp_len": 16.0
+}
