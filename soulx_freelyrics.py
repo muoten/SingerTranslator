@@ -89,7 +89,41 @@ def _build_bj_order():
 
 BILLIE_JEAN_ORDER = _build_bj_order()
 
-ORDERS = {"thriller": THRILLER_ORDER, "billie_jean": BILLIE_JEAN_ORDER}
+# Beat It: chorus grid from 114.1–130.1s (assets/beat_it/chorus_target.json). Window
+# starts cleanly on the hook. Vocals isolated with SoulX's mel-band-roformer karaoke +
+# dereverb, Whisper aligned with the true text as initial_prompt for per-slot timing.
+#
+# RELIABLE mapping — one clean syllable per note that can actually voice it. Two synth
+# limits force this: (a) a single note can't articulate a 2-syllable word (the 2nd
+# syllable crams/drops: power->"pow", stronger->"strong"), so every slot is 1-syllable;
+# (b) notes under ~0.3s drop the syllable entirely (too fast to articulate), so they're
+# rested. Also rested: the silent reconstructed slots (unvoiced f0 -> no sound), the
+# >1s held note's overflow, and the next-repeat tail. What remains all voices cleanly:
+# 4 / 4 / 5 / 5 = 18 syllables. (The original packs ~22-31; the synth can't articulate
+# that density, so reliable-clarity caps lower.) Measured grid: chorus_target.roformer_raw.json.
+BEAT_IT_ORDER = [
+    ("R", 0),
+    ("w", "la", [1], 1), ("w", "la", [2], 1), ("w", "la", [3], 1), ("w", "la", [4], 1),
+    ("R", 5),
+    ("w", "la", [6], 2), ("w", "la", [7], 2), ("w", "la", [8], 2), ("w", "la", [9], 2),
+    ("R", 10), ("R", 11), ("R", 12), ("R", 13), ("R", 14),
+    ("w", "la", [15], 3), ("w", "la", [16], 3), ("w", "la", [17], 3),
+    ("R", 18),
+    ("w", "la", [19, 20], 3),
+    ("R", 21), ("R", 22),
+    ("w", "la", [23], 3),
+    ("R", 24),
+    ("w", "la", [25], 4), ("w", "la", [26], 4), ("w", "la", [27], 4),
+    ("R", 28),
+    ("w", "la", [29], 4), ("w", "la", [30], 4),
+    ("R", 31), ("R", 32),
+]
+
+ORDERS = {
+    "thriller": THRILLER_ORDER,
+    "billie_jean": BILLIE_JEAN_ORDER,
+    "beat_it": BEAT_IT_ORDER,
+}
 
 DEMOS = {
     "thriller": [
@@ -100,6 +134,16 @@ DEMOS = {
     ],
     # Default = the real working chorus, pulled from _bj_truelyrics (not re-typed).
     "billie_jean": [" ".join(ws) for ws in _bj_ref_words()],
+    # Original 4-line demo on the Beat It chorus (4 / 4 / 5 / 5, one syllable per note).
+    # Chosen for clean articulation: ALL 18 words score green in the checker (strong
+    # consonant onsets, no vowel-leads/glides/weak-onsets), and pure-vowel line endings
+    # (beat/moon/deep/back) so the held end-notes don't double a diphthong glide.
+    "beat_it": [
+        "stand up and run",
+        "the work is done",
+        "lift your hands have fun",
+        "now we all are one",
+    ],
 }
 
 
@@ -197,7 +241,8 @@ def check(lines, song="thriller"):
     return ok, words
 
 
-def build_target(words, out_path, song="thriller", recipes=False, reinforce=False):
+def build_target(words, out_path, song="thriller", recipes=False, reinforce=False,
+                 hold_dur=None):
     """Swap each slot's phoneme for the free word; keep grid timing/pitch/f0.
 
     recipes=True applies the two GENERAL articulation rules from build_target_metadata
@@ -234,6 +279,7 @@ def build_target(words, out_path, song="thriller", recipes=False, reinforce=Fals
             spec = item[1]
             d = dur[spec[1]] * spec[3] if is_frac(spec) else dur[spec]
             phon.append("<SP>"); dura.append(round(d, 4)); npit.append(0); ntyp.append(1)
+            text.append("<SP>")  # keep text aligned with the other arrays (rests included)
             continue
         _, _, g, phrase = item
         w = words[phrase][cursor[phrase]]; cursor[phrase] += 1
@@ -252,8 +298,18 @@ def build_target(words, out_path, song="thriller", recipes=False, reinforce=Fals
             for k in g[1:]:
                 phon.append(held); dura.append(round(dur[k], 4)); npit.append(pitch_of([k])); ntyp.append(3); text.append(w + "_")
         else:
-            phon.append(singer.reinforce_onset(base) if reinforce else base)
-            dura.append(round(sum(dur[i] for i in g), 4)); npit.append(pitch_of(g)); ntyp.append(2); text.append(w)
+            d = round(sum(dur[i] for i in g), 4); ptc = pitch_of(g)
+            ph = singer.reinforce_onset(base) if reinforce else base
+            if hold_dur and d > hold_dur:
+                # Long note: articulate the syllable on a short onset, then HOLD the
+                # vowel (note_type 3) for the remainder — stops SoulX from re-firing
+                # the whole syllable on the held note ("beat beat beat").
+                on_d = min(0.30, round(d * 0.45, 4))
+                phon.append(ph); dura.append(on_d); npit.append(ptc); ntyp.append(2); text.append(w)
+                phon.append(singer.held_form(base)); dura.append(round(d - on_d, 4))
+                npit.append(ptc); ntyp.append(3); text.append(w + "_")
+            else:
+                phon.append(ph); dura.append(d); npit.append(ptc); ntyp.append(2); text.append(w)
 
     meta = dict(u)
     meta["phoneme"] = " ".join(phon)
