@@ -22,11 +22,21 @@ import score_beat_it as sb
 
 SONG = "beat_it"
 SEEDS = list(range(6))
-VOC_GAIN, ACC_GAIN, CEILING_DB = 0.6, 0.8, -1.5
 OUT = ROOT / "_tmp_beat_it_bake"; OUT.mkdir(exist_ok=True)
 
 
 def log(m): print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
+
+
+def _trim_end(trim_spec, on, typ):
+    """Interpret a per-song trim recipe (config['trim']) -> end time (s), or None."""
+    if not trim_spec:
+        return None
+    if trim_spec.startswith("last_sung+"):
+        off = float(trim_spec.split("+", 1)[1])
+        last_sung = max(i for i, t in enumerate(typ) if t != 1)
+        return on[last_sung + 1] + off
+    raise ValueError(f"unknown trim recipe {trim_spec!r}")
 
 
 def main():
@@ -52,25 +62,29 @@ def main():
             best = (s, t, voc)
     log(f"best seed {best[0]} timbre={best[1]:.4f}")
 
-    # 2) trim trailing synth tail to the last sung note
+    cfg = singer.song_config(SONG)
+
+    # 2) trim trailing synth tail per the song's trim recipe (config-driven)
     d = json.loads(tgt.read_text())[0]
     dur = [float(x) for x in d["duration"].split()]
     typ = [int(x) for x in d["note_type"].split()]
     on = np.concatenate([[0], np.cumsum(dur)])
-    last_sung = max(i for i, t in enumerate(typ) if t != 1)
-    end = on[last_sung + 1] + 0.20
     y, sr = sf.read(best[2])
-    y = y[:int(end * sr)].copy()
-    f = int(0.12 * sr); y[-f:] *= np.linspace(1, 0, f)
+    end = _trim_end(cfg["trim"], on, typ)
+    if end is not None:
+        y = y[:int(end * sr)].copy()
+        f = int(0.12 * sr); y[-f:] *= np.linspace(1, 0, f)
+        log(f"trimmed vocal to {end:.2f}s")
     voc_trim = OUT / "vocal_final.wav"; sf.write(voc_trim, y, sr)
-    log(f"trimmed vocal to {end:.2f}s")
 
-    # 3) mix (vocal under accompaniment) + ceiling
+    # 3) mix (gains from config) + optional ceiling (config)
     mix = OUT / "mix_final.wav"
-    singer.mix_with_accompaniment(voc_trim, mix, voc_gain=VOC_GAIN, acc_gain=ACC_GAIN, song=SONG)
-    m, sr2 = sf.read(mix)
-    m = m * (10 ** (CEILING_DB / 20) / np.max(np.abs(m)))
-    sf.write(mix, m, sr2)
+    singer.mix_with_accompaniment(voc_trim, mix, song=SONG)
+    ceiling_db = cfg["mix"]["ceiling_db"]
+    if ceiling_db is not None:
+        m, sr2 = sf.read(mix)
+        m = m * (10 ** (ceiling_db / 20) / np.max(np.abs(m)))
+        sf.write(mix, m, sr2)
 
     # 4) bake
     lyric = "/".join(" ".join(l.lower().split()) for l in lines)

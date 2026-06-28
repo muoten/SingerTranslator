@@ -252,7 +252,12 @@ def build_target(words, out_path, song="thriller", recipes=False, reinforce=Fals
     reinforce=True (without recipes) applies ONLY the onset-reinforcement recipe
     (singer.reinforce_onset: double weak HH/R/L onsets, cluster + post-schwa plosives)
     on the whole word, with NO held-vowel split — the clean, isolated articulation fix.
+
+    hold_dur=None (default) pulls the per-song cap from assets/<song>/config.json;
+    pass an explicit number to override, or 0 to force it off.
     """
+    if hold_dur is None:
+        hold_dur = singer.song_config(song).get("hold_dur")
     u = json.loads(grid_path(song).read_text())[0]
     order = ORDERS[song]
     dur = [float(x) for x in u["duration"].split()]
@@ -331,11 +336,14 @@ def main():
     ap.add_argument("--reinforce", action="store_true",
                     help="onset reinforcement ONLY (no held split) — the clean isolated fix")
     ap.add_argument("--n_steps", type=int, default=32, help="CFM diffusion steps (default 32)")
+    ap.add_argument("--song", default="thriller", choices=list(ORDERS),
+                    help="which chorus to sing on (default thriller)")
     args = ap.parse_args()
-    lines = (Path(args.lyric).read_text().splitlines() if args.lyric else DEMO)
+    song = args.song
+    lines = (Path(args.lyric).read_text().splitlines() if args.lyric else DEMOS[song])
     lines = [l.strip() for l in lines if l.strip()]
 
-    ok, words = check(lines)
+    ok, words = check(lines, song)
     if not ok:
         print("\n[abort] lyric does not fit the template -- adjust the flagged words.")
         sys.exit(1)
@@ -343,12 +351,12 @@ def main():
 
     out_dir = ROOT / args.out_dir
     out_dir.mkdir(exist_ok=True)
-    tgt = build_target(words, out_dir / f"{args.name}_target.json",
+    tgt = build_target(words, out_dir / f"{args.name}_target.json", song=song,
                        recipes=args.recipes, reinforce=args.reinforce)
-    vocal = singer.soulx_render(tgt.resolve(), out_dir.resolve(), n_steps=args.n_steps, seed=0)
+    vocal = singer.soulx_render(tgt.resolve(), out_dir.resolve(), n_steps=args.n_steps, seed=0, song=song)
     vocal_named = out_dir / f"{args.name}_vocal.wav"
     vocal_named.write_bytes(Path(vocal).read_bytes())
-    mix = singer.mix_with_accompaniment(vocal_named, out_dir / f"{args.name}_mix.wav", song="thriller")
+    mix = singer.mix_with_accompaniment(vocal_named, out_dir / f"{args.name}_mix.wav", song=song)
     print(f"\nDONE\n  vocal: {vocal_named}\n  mix:   {mix}")
 
 
