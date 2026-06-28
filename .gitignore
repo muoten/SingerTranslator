@@ -24,6 +24,9 @@ _nh_sweep.py
 _render_*.py
 _splice_*.py
 build_*.py
+# build_song.py is the permanent standardized song-build pipeline (keep it tracked,
+# unlike the scratch per-song build_<song>.py scripts above):
+!build_song.py
 realign_metadata.py
 
 # Scratch lyric files
