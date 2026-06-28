@@ -1,6 +1,8 @@
 # --- App-level deps -------------------------------------------------------
-gradio>=6.0
-huggingface_hub>=0.20.0
+# Pin gradio: >=6.0 drifts to 6.19.0, which requires huggingface_hub>=1.2.0 and
+# collides with transformers==4.41.2 (needs hub<1.0). 6.3.0 works with hub 0.36.x.
+gradio==6.3.0
+huggingface_hub==0.36.2
 
 # --- SoulX-Singer inference deps ------------------------------------------
 # Mirrors vendor/SoulX-Singer/requirements.txt minus preprocess-only packages
