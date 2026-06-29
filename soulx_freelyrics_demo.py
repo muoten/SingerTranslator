@@ -27,8 +27,12 @@ except ImportError:
     def GPU(fn):  # type: ignore
         return fn
 
-# Display label -> song key. Order = dropdown order.
-SONGS = {"Thriller": "thriller", "Billie Jean": "billie_jean", "Beat It": "beat_it", "Bad": "bad"}
+# Display label -> song key, in registration order. A song appears only when it is
+# registered (in soulx_freelyrics.ORDERS/DEMOS) AND marked demo=true in its
+# assets/<song>/config.json. This lets a song be fully built/baked yet hidden from
+# the demo (set demo=false) — e.g. quality not there yet. See singer.demo_songs().
+SONGS = singer.demo_songs(fl.DEMOS.keys())
+assert SONGS, "no demo-enabled songs found (set demo=true in assets/<song>/config.json)"
 
 
 @GPU
