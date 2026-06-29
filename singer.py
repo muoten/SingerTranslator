@@ -39,8 +39,19 @@ DEFAULT_SONG = "thriller"
 def song_dir(song: str) -> Path:
     return ASSETS / song
 
-def prompt_wav(song: str = DEFAULT_SONG) -> Path:    return song_dir(song) / "prompt.wav"
-def prompt_meta(song: str = DEFAULT_SONG) -> Path:   return song_dir(song) / "prompt.json"
+# Canonical shared MJ voice prompt (a clean Thriller VERSE clip). Because it is
+# verse audio, it differs from every song's CHORUS target -> anti-leak for ALL
+# songs (including Thriller). A song needs its own prompt.* ONLY to override it;
+# new songs just omit it and fall back here. No per-song prompt hunt required.
+MJ_PROMPT_WAV = ASSETS / "_shared" / "mj_prompt.wav"
+MJ_PROMPT_META = ASSETS / "_shared" / "mj_prompt.json"
+
+def prompt_wav(song: str = DEFAULT_SONG) -> Path:
+    p = song_dir(song) / "prompt.wav"
+    return p if p.exists() else MJ_PROMPT_WAV
+def prompt_meta(song: str = DEFAULT_SONG) -> Path:
+    p = song_dir(song) / "prompt.json"
+    return p if p.exists() else MJ_PROMPT_META
 def template_json(song: str = DEFAULT_SONG) -> Path: return song_dir(song) / "chorus_target.json"
 def accomp_wav(song: str = DEFAULT_SONG) -> Path:    return song_dir(song) / "accompaniment.wav"
 def cache_dir(song: str = DEFAULT_SONG) -> Path:     return song_dir(song) / "cache"
