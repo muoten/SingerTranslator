@@ -180,18 +180,18 @@ SMOOTH_CRIMINAL_ORDER = [
     ("w", "la", [33], 4), ("R", 34), ("R", 35), ("w", "la", [36], 4), ("R", 37),
 ]
 
-# The Way You Make Me Feel — auto de-inflation ORDER, 20 audible slots across 3
-# contiguous phrases (3/7/10). Reference words 'la' (1 syllable). Not ear-refined.
+# The Way You Make Me Feel — auto de-inflation ORDER on the LEAD-ONLY grid (karaoke
+# roformer isolated MJ lead; backing chorus removed). 13 audible slots across 3
+# phrases renumbered contiguous (3/6/4). Reference words 'la'. Not ear-refined.
 THE_WAY_YOU_MAKE_ME_FEEL_ORDER = [
     ("w", "la", [0], 1), ("R", 1), ("w", "la", [2], 1), ("w", "la", [3], 1),
-    ("R", 4), ("R", 5), ("R", 6), ("w", "la", [7], 2), ("R", 8), ("R", 9),
-    ("w", "la", [10], 2), ("w", "la", [11], 2), ("w", "la", [12], 2), ("R", 13), ("R", 14),
-    ("w", "la", [15], 2), ("R", 16), ("w", "la", [17], 2), ("R", 18), ("w", "la", [19], 2),
-    ("R", 20), ("R", 21), ("R", 22), ("R", 23),
-    ("w", "la", [24], 3), ("w", "la", [25], 3), ("w", "la", [26], 3), ("R", 27),
-    ("w", "la", [28], 3), ("w", "la", [29], 3), ("w", "la", [30], 3), ("w", "la", [31], 3),
-    ("R", 32), ("R", 33), ("w", "la", [34], 3), ("w", "la", [35], 3), ("w", "la", [36], 3),
-    ("R", 37), ("R", 38),
+    ("R", 4), ("R", 5), ("R", 6),
+    ("w", "la", [7], 2), ("w", "la", [8], 2), ("R", 9), ("R", 10), ("R", 11), ("R", 12),
+    ("w", "la", [13], 2), ("w", "la", [14], 2), ("R", 15), ("R", 16), ("w", "la", [17], 2),
+    ("R", 18), ("w", "la", [19], 2),
+    ("R", 20), ("R", 21), ("R", 22),
+    ("w", "la", [23], 3), ("w", "la", [24], 3), ("w", "la", [25], 3), ("w", "la", [26], 3),
+    ("R", 27), ("R", 28),
 ]
 
 ORDERS = {
@@ -237,12 +237,12 @@ DEMOS = {
         "day and night",
         "we go",
     ],
-    # Placeholder monosyllabic lyric matching the 3/7/10 slot counts. Swap for a
-    # real lyric + ear-refine before promoting (demo flag in config.json).
+    # Placeholder monosyllabic lyric matching the 3/6/4 slot counts (lead-only grid).
+    # Swap for a real lyric + ear-refine before promoting (demo flag in config.json).
     "the_way_you_make_me_feel": [
         "day by day",
-        "take me to the top with you",
-        "we dance and dance through the dark all night long",
+        "take me to the top now",
+        "we dance all night",
     ],
 }
 
