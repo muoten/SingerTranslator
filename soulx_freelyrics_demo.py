@@ -28,7 +28,7 @@ except ImportError:
         return fn
 
 # Display label -> song key. Order = dropdown order.
-SONGS = {"Thriller": "thriller", "Billie Jean": "billie_jean", "Beat It": "beat_it"}
+SONGS = {"Thriller": "thriller", "Billie Jean": "billie_jean", "Beat It": "beat_it", "Bad": "bad"}
 
 
 @GPU

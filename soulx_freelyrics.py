@@ -119,10 +119,57 @@ BEAT_IT_ORDER = [
     ("R", 31), ("R", 32),
 ]
 
+# Bad: stitched full-chorus grid (roformer-isolated head + demucs tail — roformer strips
+# the layered final phrase, so the climactic "who's bad?" tail is stitched from demucs).
+# Parody default: the "I'm bad" hook -> "I'm back", "who's bad?" -> "who's back?" on the
+# closing beat. Slots group each word with its trailing melisma notes; 49-slot grid.
+BAD_ORDER = [
+    ("R", 0),
+    ("w", "I'm", [1], 1),
+    ("w", "back", [2, 3, 4], 1),
+    ("w", "I'm", [5], 1),
+    ("w", "back", [6, 7], 1),
+    ("w", "no", [8], 1),
+    ("w", "more", [9, 10, 11], 1),
+    ("w", "I'm", [12], 2),
+    ("w", "back", [13], 2),
+    ("w", "I'm", [14], 2),
+    ("w", "back", [15], 2),
+    ("w", "you", [16, 17], 2),
+    ("w", "know", [18], 2),
+    ("R", 19),
+    ("R", 20),
+    ("w", "no", [21, 22], 3),
+    ("w", "more", [23, 24], 3),
+    ("w", "I'm", [25], 3),
+    ("w", "back", [26], 3),
+    ("w", "I'm", [27], 3),
+    ("w", "back", [28, 29], 3),
+    ("w", "you", [30, 31], 3),
+    ("w", "know", [32], 3),
+    ("R", 33),
+    ("R", 34),
+    ("R", 35),
+    ("w", "the", [36], 4),
+    ("R", 37),
+    ("w", "whole", [38], 4),
+    ("w", "world", [39], 4),
+    ("w", "knows", [40], 4),
+    ("w", "now", [41], 4),
+    ("w", "I'll", [42], 4),
+    ("w", "tell", [43], 4),
+    ("w", "you", [44], 4),
+    ("w", "once", [45], 4),
+    ("w", "more", [46], 4),
+    ("w", "who's", [47], 4),
+    ("w", "back", [48], 4),
+]
+
 ORDERS = {
     "thriller": THRILLER_ORDER,
     "billie_jean": BILLIE_JEAN_ORDER,
     "beat_it": BEAT_IT_ORDER,
+    "bad": BAD_ORDER,
 }
 
 DEMOS = {
@@ -143,6 +190,13 @@ DEMOS = {
         "the work is done",
         "lift your hands have fun",
         "now we all are one",
+    ],
+    # Bad: "I'm back" comeback parody, ending on "who's back?" (mirrors "who's bad?").
+    "bad": [
+        "I'm back I'm back no more",
+        "I'm back I'm back you know",
+        "no more I'm back I'm back you know",
+        "the whole world knows now I'll tell you once more who's back",
     ],
 }
 
