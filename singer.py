@@ -63,6 +63,11 @@ SONG_CONFIG_DEFAULTS: dict = {
     "mix": {"voc_gain": 1.2, "acc_gain": 0.9, "ceiling_db": None},
     "trim": None,
     "accomp_len": None,
+    # Demo visibility: a song may be fully built/baked yet hidden from the public
+    # demo (e.g. quality not there yet). It surfaces only when demo == True AND it
+    # is registered (in soulx_freelyrics.ORDERS/DEMOS). New songs default to hidden.
+    "demo": False,
+    "label": None,        # display name in the demo; None -> derived from the key
 }
 _song_config_cache: dict[str, dict] = {}
 
@@ -81,6 +86,27 @@ def song_config(song: str = DEFAULT_SONG) -> dict:
                     cfg[k] = v
         _song_config_cache[song] = cfg
     return _song_config_cache[song]
+
+
+def song_label(song: str = DEFAULT_SONG) -> str:
+    """Display name for the demo: config 'label' or a title-cased key."""
+    return song_config(song).get("label") or song.replace("_", " ").title()
+
+
+def is_demo(song: str = DEFAULT_SONG) -> bool:
+    """Whether this song should be surfaced in the public demo."""
+    return bool(song_config(song).get("demo"))
+
+
+def demo_songs(registered) -> dict:
+    """Ordered {label: key} for songs that are demo-enabled AND registered.
+
+    `registered` is an ordered iterable of song keys that are actually renderable
+    (i.e. present in soulx_freelyrics.ORDERS/DEMOS). Passing it in keeps singer.py
+    free of a circular import on soulx_freelyrics.
+    """
+    return {song_label(k): k for k in registered if is_demo(k)}
+
 
 PLOSIVES = {"B", "P", "T", "K", "D", "G"}
 VOWELS = {"AA", "AE", "AH", "AO", "AW", "AY", "EH", "ER", "EY",

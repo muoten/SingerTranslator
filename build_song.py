@@ -12,13 +12,20 @@ PIPELINE (each stage skips if its output already exists; --force re-runs):
   4. grid       preproc output -> assets/<song>/chorus_target.json            [needs-verify]
   5. prompt     prompt.wav (chorus offset ~PROMPT_OFFSET s, anti-leakage)     [auto, ffmpeg]
   6. accomp     accompaniment.wav (vocal-stripped chorus, faded)              [auto, ffmpeg]
-  7. config     assets/<song>/config.json (defaults; tune later)              [auto]
-  8. order      PROPOSE the note->word ORDER by de-inflation heuristic        [EAR: confirm]
-  9. register   print the ORDERS / DEMOS / SONGS snippet to paste             [auto]
+  7. verify     neutral-'la' synthesis + leakage gate (copyright-safe)        [EAR: confirm]
+                (FAIL = original words bleed -> build a verse anti-leak prompt)
+  8. config     assets/<song>/config.json (defaults; tune later)              [auto]
+  9. order      PROPOSE the note->word ORDER by de-inflation heuristic        [EAR: confirm]
+ 10. register   print the ORDERS / DEMOS snippet + how to surface in the demo [auto]
+
+A song is only ever shown in the demo when it is registered (ORDERS/DEMOS) AND its
+config.json has "demo": true. New songs default to demo=false, so they can be fully
+built/baked yet stay hidden until promoted (or kept hidden permanently).
 
 EAR-JUDGMENT (the irreducible craft — you supply / confirm these):
   - WINDOW    which chorus instance (--window START:END), auto-proposes none yet
-  - ORDER     which slots voice cleanly vs rest (stage 8 proposes, you confirm)
+  - VERIFY    neutral-'la' render: clean on-melody 'la' = PASS; original words = leak
+  - ORDER     which slots voice cleanly vs rest (stage 9 proposes, you confirm)
   - ALIGNMENT spot-check Whisper transcript vs the true lyric (printed in stage 3)
   - SEED      picked later at bake time (scripts/bake_*), not here
 
@@ -240,8 +247,28 @@ def stage_order(song, args):
           "boundaries, and rest/merge any slot that doesn't voice cleanly (cf. BEAT_IT_ORDER).")
 
 
+def stage_verify(song, args):
+    """Neutral-'la' synthesis + leakage gate (copyright-safe). EAR-judgment.
+
+    Renders the chorus grid on a neutral 'la' through the SAME path the real cover
+    uses (so speed/articulation match), with the song's shipping prompt. You can't
+    use the real lyrics here: they trip copyright AND can't distinguish correct
+    synthesis from prompt leakage (both produce the original words). With 'la',
+    any original words you hear are unambiguously leakage -> swap to a verse
+    (anti-leakage) prompt and re-run. See scripts/verify_neutral.py.
+    """
+    mix = ROOT / "_verify_neutral" / song / f"{song}_neutral_mix.wav"
+    if mix.exists() and not args.force:
+        print(f"  [skip] neutral check exists: {mix}"); return
+    env = dict(os.environ); env["SINGER_DEVICE"] = args.device
+    _run([sys.executable, str(ROOT / "scripts" / "verify_neutral.py"),
+          "--song", song], env=env)
+    print(f"  >>> EAR-CHECK: PASS = clean on-melody 'la la la' in the song's voice; "
+          f"FAIL = original words bleed (prompt leaks). {mix}")
+
+
 def stage_register(song, args):
-    """Print the soulx_freelyrics / demo registration snippet to paste."""
+    """Print the registration snippet + how to surface the song in the demo."""
     n = 1
     try:
         g = json.loads(singer.template_json(song).read_text())[0]
@@ -252,14 +279,15 @@ def stage_register(song, args):
     print(f'    ORDERS["{song}"] = {song.upper()}_ORDER')
     print(f'    DEMOS["{song}"]  = ["<line1>", "<line2>", "<line3>", "<line4>"]  '
           f'# ~{n} syllables total, matched per phrase')
-    label = song.replace("_", " ").title()
-    print("  paste into soulx_freelyrics_demo.py:")
-    print(f'    SONGS["{label}"] = "{song}"')
+    print(f"  to SURFACE in the demo, set in assets/{song}/config.json:")
+    print('    "demo": true            # default false = baked-but-hidden')
+    print("  (the demo auto-lists registered songs with demo=true; no SONGS edit needed)")
 
 
 STAGES = [
     ("separate", stage_separate), ("slice", stage_slice), ("preproc", stage_preproc),
     ("grid", stage_grid), ("prompt", stage_prompt), ("accomp", stage_accomp),
+    ("verify", stage_verify),
     ("config", stage_config), ("order", stage_order), ("register", stage_register),
 ]
 STAGE_NAMES = [n for n, _ in STAGES]

@@ -165,11 +165,27 @@ BAD_ORDER = [
     ("w", "back", [48], 4),
 ]
 
+# Smooth Criminal — auto-proposed de-inflation ORDER (11 audible slots), with the
+# phrase numbers renumbered contiguous (1..4) so DEMOS is a clean 4-line lyric.
+# Reference words are 'la' (1 syllable) -> any 1-syllable word fits. NOT ear-refined:
+# the chorus grid is sparse and quality is "not good" -> kept demo=false (hidden).
+SMOOTH_CRIMINAL_ORDER = [
+    ("R", 0), ("R", 1), ("R", 2), ("w", "la", [3], 1),
+    ("R", 4), ("R", 5), ("R", 6), ("w", "la", [7], 2),
+    ("R", 8), ("R", 9), ("w", "la", [10], 2), ("R", 11),
+    ("w", "la", [12], 2), ("w", "la", [13], 2), ("R", 14), ("w", "la", [15], 2),
+    ("R", 16), ("R", 17), ("R", 18), ("R", 19), ("w", "la", [20], 3),
+    ("R", 21), ("R", 22), ("w", "la", [23], 3), ("w", "la", [24], 3),
+    ("R", 25), ("R", 26), ("R", 27), ("R", 28), ("R", 29), ("R", 30), ("R", 31), ("R", 32),
+    ("w", "la", [33], 4), ("R", 34), ("R", 35), ("w", "la", [36], 4), ("R", 37),
+]
+
 ORDERS = {
     "thriller": THRILLER_ORDER,
     "billie_jean": BILLIE_JEAN_ORDER,
     "beat_it": BEAT_IT_ORDER,
     "bad": BAD_ORDER,
+    "smooth_criminal": SMOOTH_CRIMINAL_ORDER,
 }
 
 DEMOS = {
@@ -197,6 +213,14 @@ DEMOS = {
         "I'm back I'm back you know",
         "no more I'm back I'm back you know",
         "the whole world knows now I'll tell you once more who's back",
+    ],
+    # Placeholder monosyllabic lyric matching the 1/5/3/2 slot counts. Hidden song
+    # (demo=false); replace + ear-refine the ORDER before ever promoting it.
+    "smooth_criminal": [
+        "now",
+        "take me to the top",
+        "day and night",
+        "we go",
     ],
 }
 
