@@ -9,8 +9,9 @@ PIPELINE (each stage skips if its output already exists; --force re-runs):
                 + validate (duration/sr; flags snippets & compilations)
   1. separate   demucs full track -> vocals.wav + accompaniment (no_vocals)   [shell-out]
   2. slice      cut the chorus WINDOW from vocals/accomp/full                  [auto, ffmpeg]
-  3. preproc    run_preproc_with_whisper.py on the chorus vocal               [shell-out]
-                (Whisper align w/ true lyrics as initial_prompt + f0 + notes)
+  3. preproc    karaoke-roformer isolate MJ LEAD (drop backing chorus), then     [shell-out]
+                Whisper align (true lyrics as initial_prompt) + f0 + ROSVOT notes
+                (--lead_sep False to skip lead isolation when there's no backing)
   4. grid       preproc output -> assets/<song>/chorus_target.json            [needs-verify]
   5. prompt     prompt.wav (chorus offset ~PROMPT_OFFSET s, anti-leakage)     [auto, ffmpeg]
   6. accomp     accompaniment.wav (vocal-stripped chorus, faded)              [auto, ffmpeg]
@@ -178,7 +179,13 @@ def stage_slice(song, args):
 
 
 def stage_preproc(song, args):
-    """SoulX preprocess (Whisper align + f0 + ROSVOT notes) on the chorus vocal."""
+    """SoulX preprocess on the chorus vocal: karaoke roformer isolates the MJ LEAD
+    (drops backing chorus) -> Whisper align + f0 + ROSVOT notes on the lead.
+
+    lead_sep=True (default) runs the mel-band-roformer-karaoke separator so the grid
+    captures only MJ's solo line. With lead_sep=False the demucs vocals stem is used
+    as-is (lead + backing) and backing harmonies leak into the grid -> non-MJ "chorus"
+    fragments in the render. Always keep True unless the chorus has no backing vocals."""
     voc = sources_dir(song) / "chorus_vocal.wav"
     save = sources_dir(song) / "preproc"
     if (save / "metadata.json").exists() and not args.force:
@@ -194,7 +201,7 @@ def stage_preproc(song, args):
     _run([py, str(ROOT / "run_preproc_with_whisper.py"),
           "--audio_path", str(voc.resolve()), "--save_dir", str(save.resolve()),
           "--language", args.language, "--device", args.device,
-          "--vocal_sep", "False", "--midi_transcribe", "True"],
+          "--vocal_sep", args.lead_sep, "--midi_transcribe", "True"],
          env=env, cwd=str(SOULX_ROOT))
     print("  >>> EAR-CHECK: compare the printed Whisper text above against your lyric.")
 
@@ -359,6 +366,8 @@ def main():
     ap.add_argument("--lyrics", default="", help="true chorus lyric — ALIGNMENT ONLY (Whisper initial_prompt)")
     ap.add_argument("--language", default="English")
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--lead_sep", default="True", choices=["True", "False"],
+                    help="stage 'preproc': karaoke-roformer isolate MJ lead (drop backing chorus). Default True.")
     ap.add_argument("--from", dest="from_stage", choices=STAGE_NAMES, help="resume from this stage")
     ap.add_argument("--only", choices=STAGE_NAMES, help="run only this stage")
     ap.add_argument("--force", action="store_true", help="re-run even if outputs exist")
