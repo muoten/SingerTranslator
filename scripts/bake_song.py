@@ -54,7 +54,7 @@ def main():
         raise SystemExit("demo lyric doesn't fit template")
     tgt = OUT / "target.json"
     fl.build_target(words, tgt, song=SONG)
-    prompt = str(ROOT / "assets" / SONG / "prompt.wav")
+    prompt = str(singer.prompt_wav(SONG))   # per-song prompt or canonical MJ fallback
 
     # 1) seed search by timbre
     best = None

@@ -1,0 +1,13 @@
+{
+  "hold_dur": null,
+  "f0_clamp_semi": null,
+  "mix": {
+    "voc_gain": 1.2,
+    "acc_gain": 0.9,
+    "ceiling_db": null
+  },
+  "trim": null,
+  "accomp_len": null,
+  "demo": false,
+  "label": null
+}

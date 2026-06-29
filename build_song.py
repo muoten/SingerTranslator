@@ -5,6 +5,8 @@ resumable stage pipeline: the mechanical steps run automatically; the few
 ear-judgment steps stop and ask you to confirm.
 
 PIPELINE (each stage skips if its output already exists; --force re-runs):
+  0. fetch      yt-dlp ytsearch by --title -> sources/<song>/<song>_full.wav   [shell-out]
+                + validate (duration/sr; flags snippets & compilations)
   1. separate   demucs full track -> vocals.wav + accompaniment (no_vocals)   [shell-out]
   2. slice      cut the chorus WINDOW from vocals/accomp/full                  [auto, ffmpeg]
   3. preproc    run_preproc_with_whisper.py on the chorus vocal               [shell-out]
@@ -35,9 +37,11 @@ PREREQUISITES (see feedback_soulx_preproc_macos_gotchas):
   - run long stages directly (not nohup&); WHISPER_INITIAL_PROMPT carries the lyric
 
 Usage:
-  python build_song.py --song bad --source sources/bad/bad_full.wav \\
-      --window 60.0:76.0 --lyrics "<true chorus lyric, ALIGNMENT ONLY>" --device cpu
-  python build_song.py --song bad --only order      # re-propose the ORDER
+  python build_song.py --song bad --only fetch       # download+validate the source by title
+  python build_song.py --song bad --window 60.0:76.0 \\
+      --lyrics "<true chorus lyric, ALIGNMENT ONLY>" --device cpu   # fetch->...->register
+  python build_song.py --song bad --title "Michael Jackson Bad official audio" --only fetch
+  python build_song.py --song bad --only order       # re-propose the ORDER
   python build_song.py --song bad --from grid        # resume from a stage
 """
 from __future__ import annotations
@@ -87,11 +91,64 @@ def _run(cmd: list[str], **kw):
 # Each stage(song, args) returns None. Convention: read inputs from sources/<song>/,
 # write assets/<song>/ outputs. Raise to abort; print a clear next-step on stubs.
 
+def _full_track(song: str) -> Path:
+    """The song's full-track wav. Prefers <song>_full.wav, else any *_full.wav in
+    sources/<song>/ (back-compat with sc_full.wav etc.), else the canonical path."""
+    d = sources_dir(song)
+    canonical = d / f"{song}_full.wav"
+    if canonical.exists():
+        return canonical
+    other = next(iter(sorted(d.glob("*_full.wav"))), None)
+    return other or canonical
+
+
+def _validate_source(full: Path):
+    """Sanity-check a downloaded source. Catches the failure modes we actually hit:
+    a 30s preview/snippet, or a multi-song compilation/mix (e.g. a 13-min upload)."""
+    import soundfile as sf
+    info = sf.info(str(full))
+    dur, sr, ch = info.duration, info.samplerate, info.channels
+    print(f"  source: {full.name}  dur={dur:.1f}s ({dur/60:.2f} min)  sr={sr}  ch={ch}")
+    problems = []
+    if dur < 90:
+        problems.append(f"only {dur:.0f}s — likely a preview/snippet, not the full track")
+    if dur > 600:
+        problems.append(f"{dur/60:.1f} min — likely a compilation/mix, not a single song")
+    if sr < 32000:
+        problems.append(f"low sample rate {sr} — poor source quality")
+    if problems:
+        print("  >>> SOURCE WARNING: " + "; ".join(problems))
+        print("      Re-run fetch with a better --title query (or --force) if this is wrong.")
+    else:
+        print("  source looks like a plausible full single track.")
+    print("  >>> EAR-CONFIRM it is the right song/version before building on it.")
+
+
+def stage_fetch(song, args):
+    """Download the source full track by TITLE (yt-dlp ytsearch) + validate it.
+
+    Standardizes the acquisition front of the pipeline. Default query is
+    'Michael Jackson <Label> official audio'; override with --title. Skips if a
+    *_full.wav already exists for the song."""
+    existing = _full_track(song)
+    if existing.exists() and not args.force:
+        print(f"  [skip] source exists: {existing}")
+        _validate_source(existing); return
+    query = args.title or f"Michael Jackson {singer.song_label(song)} official audio"
+    dest = sources_dir(song) / f"{song}_full.wav"
+    sources_dir(song).mkdir(parents=True, exist_ok=True)
+    print(f"  yt-dlp ytsearch1: {query!r}")
+    _run(["yt-dlp", "-x", "--audio-format", "wav",
+          "-o", str(sources_dir(song) / f"{song}_full.%(ext)s"),
+          f"ytsearch1:{query}"])
+    _validate_source(dest)
+
+
 def stage_separate(song, args):
     """demucs the full track -> sources/<song>/_sep/htdemucs/<stem>/{vocals,no_vocals}.wav"""
-    full = Path(args.source)
+    full = Path(args.source) if args.source else _full_track(song)
     if not full.exists():
-        raise SystemExit(f"--source not found: {full}")
+        raise SystemExit(f"no source track: {full} (run stage 'fetch' or pass --source)")
     out = sources_dir(song) / "_sep"
     voc = next(out.glob("**/vocals.wav"), None)
     if voc and not args.force:
@@ -174,18 +231,17 @@ def stage_grid(song, args):
 
 
 def stage_prompt(song, args):
-    """prompt.wav = the chorus offset by PROMPT_OFFSET s (anti audio-leakage) + prompt.json."""
-    voc = sources_dir(song) / "chorus_vocal.wav"
-    dst = singer.prompt_wav(song)
-    if dst.exists() and not args.force:
-        print(f"  [skip] {dst.name}"); return
-    _run(["ffmpeg", "-y", "-ss", str(PROMPT_OFFSET), "-i", str(voc), "-ar", "44100", str(dst)],
-         capture_output=True)
-    # prompt.json must mirror chorus_target.json's schema (SoulX reads it as the prompt grid).
-    pj = singer.prompt_meta(song)
-    if not pj.exists() or args.force:
-        print(f"  NOTE: write {pj} (same 9-key schema, the offset window's slice). "
-              "Thriller/BJ used a ~1s verse slice — copy/trim chorus_target.json accordingly.")
+    """Resolve the prompt — default is the shared canonical MJ voice (anti-leak for
+    any chorus target). No per-song prompt is cut: singer.prompt_wav/meta fall back
+    to assets/_shared/mj_prompt.* when a song has no prompt.* of its own. To override
+    for a specific song, drop a verse-derived prompt.{wav,json} in assets/<song>/."""
+    pw, pj = singer.prompt_wav(song), singer.prompt_meta(song)
+    if not (pw.exists() and pj.exists()):
+        raise SystemExit(
+            f"no prompt available for {song}: neither assets/{song}/prompt.* nor the "
+            f"canonical {singer.MJ_PROMPT_WAV} exist. Install the canonical MJ prompt.")
+    own = (singer.song_dir(song) / "prompt.wav").exists()
+    print(f"  [ok] prompt = {'per-song override' if own else 'shared canonical MJ voice'}: {pw}")
 
 
 def stage_accomp(song, args):
@@ -285,6 +341,7 @@ def stage_register(song, args):
 
 
 STAGES = [
+    ("fetch", stage_fetch),
     ("separate", stage_separate), ("slice", stage_slice), ("preproc", stage_preproc),
     ("grid", stage_grid), ("prompt", stage_prompt), ("accomp", stage_accomp),
     ("verify", stage_verify),
@@ -296,7 +353,8 @@ STAGE_NAMES = [n for n, _ in STAGES]
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--song", required=True, help="song key, e.g. 'bad'")
-    ap.add_argument("--source", help="full-track wav (for stage 'separate')")
+    ap.add_argument("--title", help="search query for stage 'fetch' (default: 'Michael Jackson <Label> official audio')")
+    ap.add_argument("--source", help="full-track wav override (else sources/<song>/<song>_full.wav)")
     ap.add_argument("--window", help="chorus window START:END in seconds, e.g. 60.0:76.0")
     ap.add_argument("--lyrics", default="", help="true chorus lyric — ALIGNMENT ONLY (Whisper initial_prompt)")
     ap.add_argument("--language", default="English")
