@@ -173,8 +173,7 @@ discussion in `feedback_preferences.md` for the methodology.
 │   │   └── cache/                   — rendered covers (incl. pre-baked defaults)
 │   └── billie_jean/freelyric_reference.json  — per-phrase reference words
 ├── scripts/                     — eval / scoring tooling (not needed to run the app)
-├── vendor/SoulX-Singer/         — submodule: muoten fork with --n_steps + --seed
-└── examples/                    — milestone outputs from the build history
+└── vendor/SoulX-Singer/         — submodule: muoten fork with --n_steps + --seed
 ```
 
 ## Submodule patches
