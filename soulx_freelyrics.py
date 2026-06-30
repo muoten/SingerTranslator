@@ -194,6 +194,19 @@ THE_WAY_YOU_MAKE_ME_FEEL_ORDER = [
     ("R", 27), ("R", 28),
 ]
 
+# Black or White — auto de-inflation ORDER on the LEAD-ONLY grid (karaoke roformer).
+# 11 audible slots across 3 contiguous phrases (3/5/3). Reference 'la'. Not ear-refined.
+BLACK_OR_WHITE_ORDER = [
+    ("R", 0), ("R", 1), ("R", 2), ("R", 3), ("w", "la", [4], 1),
+    ("R", 5), ("R", 6), ("w", "la", [7], 1), ("R", 8), ("R", 9), ("R", 10),
+    ("w", "la", [11], 1), ("R", 12),
+    ("w", "la", [13], 2), ("w", "la", [14], 2), ("w", "la", [15], 2), ("w", "la", [16], 2),
+    ("R", 17), ("w", "la", [18], 2),
+    ("R", 19), ("R", 20), ("R", 21), ("R", 22),
+    ("w", "la", [23], 3), ("R", 24), ("w", "la", [25], 3), ("R", 26), ("w", "la", [27], 3),
+    ("R", 28),
+]
+
 ORDERS = {
     "thriller": THRILLER_ORDER,
     "billie_jean": BILLIE_JEAN_ORDER,
@@ -201,6 +214,7 @@ ORDERS = {
     "bad": BAD_ORDER,
     "smooth_criminal": SMOOTH_CRIMINAL_ORDER,
     "the_way_you_make_me_feel": THE_WAY_YOU_MAKE_ME_FEEL_ORDER,
+    "black_or_white": BLACK_OR_WHITE_ORDER,
 }
 
 DEMOS = {
@@ -243,6 +257,12 @@ DEMOS = {
         "day by day",
         "take me to the top now",
         "we dance all night",
+    ],
+    # Placeholder monosyllabic lyric matching the 3/5/3 slot counts (lead-only grid).
+    "black_or_white": [
+        "day by day",
+        "take me to the top",
+        "we go now",
     ],
 }
 
