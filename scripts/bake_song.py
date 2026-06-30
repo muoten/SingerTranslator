@@ -104,6 +104,23 @@ def main():
     shutil.copy(voc_trim, cdir / f"fl_{key}_vocal.wav")
     log(f"BAKED {SONG} key={key} (seed {best[0]}, timbre {best[1]:.4f}) -> {cdir}")
 
+    # 5) demo-eligibility gate: total grid-mismatched ("crappy") audio (crappy_fragments.py).
+    # HIDE is auto-applied (safe); ENABLE is only RECOMMENDED (enabling publishes live).
+    import crappy_fragments as cf
+    r = cf.evaluate(SONG, cdir / f"fl_{key}_vocal.wav")
+    if r:
+        log(f"SCAT-GATE {SONG}: total_crappy={r['total']:.2f}s (gate {cf.GATE_S}s) longest={r['longest']:.2f}s -> {r['verdict']}")
+        cfgp = singer.config_json(SONG)
+        conf = json.loads(cfgp.read_text()) if cfgp.exists() else {}
+        if r["verdict"] == "HIDE":
+            if conf.get("demo"):
+                conf["demo"] = False; cfgp.write_text(json.dumps(conf, indent=2))
+                log(f"  -> set demo=false in {cfgp} (>= {cf.GATE_S}s crappy)")
+            else:
+                log("  -> demo stays/false (gate agrees)")
+        else:
+            log(f"  -> RECOMMEND demo=true (confirm before publishing): set \"demo\": true in {cfgp}")
+
 
 if __name__ == "__main__":
     main()
