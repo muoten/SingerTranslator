@@ -204,6 +204,22 @@ def stage_preproc(song, args):
           "--vocal_sep", args.lead_sep, "--midi_transcribe", "True"],
          env=env, cwd=str(SOULX_ROOT))
     print("  >>> EAR-CHECK: compare the printed Whisper text above against your lyric.")
+    # Advisory solo-vs-chorus flag: if the karaoke lead is mostly surrounded by other
+    # vocal energy, the chorus is choral (unison choir) -> uncleanable -> expect a bad
+    # render. Warn now, before the render/bake (scripts/validate_lead.py).
+    try:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import validate_lead as vl
+        r = vl.evaluate(song)
+        if r:
+            print(f"  [lead] backing/total={r['backing_ratio']*100:.0f}% "
+                  f"(worst {r['worst_window']*100:.0f}% @{r['worst_at']}s) -> {r['verdict']}")
+            if r["verdict"] == "CHORAL":
+                print("  >>> WARNING: chorus appears CHORAL (lead sung with a choir) — the "
+                      "solo-lead pipeline can't isolate it cleanly; expect a poor render. "
+                      "Consider a more-solo window.")
+    except Exception as e:
+        print(f"  [lead] solo-vs-chorus check skipped ({e})")
 
 
 def stage_grid(song, args):
