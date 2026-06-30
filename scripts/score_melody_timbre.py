@@ -127,6 +127,14 @@ def sim(take_path, ref_emb):
     return float((xvector(take_path) * ref_emb).sum())
 
 
+def timbre_sim(voc, prompt):
+    """WavLM speaker-embedding cosine-sim of a render vs the prompt. Song-agnostic;
+    used by bake_song.py to rank seeds (validated naturalness/chipmunk metric)."""
+    ref = xvector(prompt)
+    emb = xvector(voc)
+    return float(F.cosine_similarity(ref, emb, dim=-1).mean())
+
+
 # --------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
