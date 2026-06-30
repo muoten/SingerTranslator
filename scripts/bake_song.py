@@ -104,22 +104,35 @@ def main():
     shutil.copy(voc_trim, cdir / f"fl_{key}_vocal.wav")
     log(f"BAKED {SONG} key={key} (seed {best[0]}, timbre {best[1]:.4f}) -> {cdir}")
 
-    # 5) demo-eligibility gate: total grid-mismatched ("crappy") audio (crappy_fragments.py).
+    # 5) COMBINED demo-eligibility gate. Two complementary failure modes:
+    #   scat (crappy_fragments): render doesn't match the grid (assumes grid is correct).
+    #   solo-vs-chorus (validate_lead): the grid itself is corrupt because the chorus is
+    #     choral (lead in unison with a choir) -> render matches a garbage grid, so scat
+    #     can't see it. Demo-eligible only if scat ENABLE *and* lead SOLO.
     # HIDE is auto-applied (safe); ENABLE is only RECOMMENDED (enabling publishes live).
     import crappy_fragments as cf
+    import validate_lead as vl
     r = cf.evaluate(SONG, cdir / f"fl_{key}_vocal.wav")
+    lead = vl.evaluate(SONG)
     if r:
-        log(f"SCAT-GATE {SONG}: total_crappy={r['total']:.2f}s (gate {cf.GATE_S}s) longest={r['longest']:.2f}s -> {r['verdict']}")
+        log(f"SCAT-GATE {SONG}: total_crappy={r['total']:.2f}s (gate {cf.GATE_S}s) -> {r['verdict']}")
+        if lead:
+            log(f"LEAD-GATE {SONG}: backing/total={lead['backing_ratio']*100:.0f}% -> {lead['verdict']}")
+        else:
+            log("LEAD-GATE: skipped (no acc.wav)")
+        scat_ok = r["verdict"] == "ENABLE"
+        lead_ok = (lead is None) or (lead["verdict"] == "SOLO")
         cfgp = singer.config_json(SONG)
         conf = json.loads(cfgp.read_text()) if cfgp.exists() else {}
-        if r["verdict"] == "HIDE":
+        if scat_ok and lead_ok:
+            log(f"  -> RECOMMEND demo=true (confirm before publishing): set \"demo\": true in {cfgp}")
+        else:
+            why = ([] if scat_ok else [f"scat {r['total']:.1f}s"]) + ([] if lead_ok else ["choral lead"])
             if conf.get("demo"):
                 conf["demo"] = False; cfgp.write_text(json.dumps(conf, indent=2))
-                log(f"  -> set demo=false in {cfgp} (>= {cf.GATE_S}s crappy)")
+                log(f"  -> set demo=false ({', '.join(why)})")
             else:
-                log("  -> demo stays/false (gate agrees)")
-        else:
-            log(f"  -> RECOMMEND demo=true (confirm before publishing): set \"demo\": true in {cfgp}")
+                log(f"  -> demo stays false ({', '.join(why)})")
 
 
 if __name__ == "__main__":

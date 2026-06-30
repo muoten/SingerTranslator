@@ -207,6 +207,19 @@ BLACK_OR_WHITE_ORDER = [
     ("R", 28),
 ]
 
+# Heal the World — auto de-inflation, phrases renumbered contiguous (1,2; counts 2/12).
+# CHORAL chorus (lead in unison with choir) — render is poor; demo=false archive only.
+HEAL_THE_WORLD_ORDER = [
+    ("R", 0), ("R", 1), ("R", 2),
+    ("w", "la", [3], 1), ("w", "la", [4], 1),
+    ("R", 5), ("R", 6),
+    ("w", "la", [7], 2), ("w", "la", [8], 2), ("R", 9),
+    ("w", "la", [10], 2), ("w", "la", [11], 2), ("w", "la", [12], 2), ("w", "la", [13], 2),
+    ("w", "la", [14], 2), ("w", "la", [15], 2), ("w", "la", [16], 2), ("w", "la", [17], 2),
+    ("w", "la", [18], 2), ("w", "la", [19], 2),
+    ("R", 20),
+]
+
 ORDERS = {
     "thriller": THRILLER_ORDER,
     "billie_jean": BILLIE_JEAN_ORDER,
@@ -215,6 +228,7 @@ ORDERS = {
     "smooth_criminal": SMOOTH_CRIMINAL_ORDER,
     "the_way_you_make_me_feel": THE_WAY_YOU_MAKE_ME_FEEL_ORDER,
     "black_or_white": BLACK_OR_WHITE_ORDER,
+    "heal_the_world": HEAL_THE_WORLD_ORDER,
 }
 
 DEMOS = {
@@ -263,6 +277,12 @@ DEMOS = {
         "day by day",
         "take me to the top",
         "we go now",
+    ],
+    # Placeholder monosyllabic lyric matching the 2/12 slot counts. CHORAL chorus,
+    # demo=false archive only.
+    "heal_the_world": [
+        "day by",
+        "take me to the top with you and we go now home",
     ],
 }
 
