@@ -14,7 +14,7 @@ Requires preproc run with --vocal_sep True (so acc.wav exists). Threshold is
 PROVISIONAL (calibrated on n=2: BoW solo-lead 28%, Heal-the-World choral 73%);
 ADVISORY only — it warns, it does not auto-hide. Refine as more songs build.
 
-  python scripts/validate_lead.py <song> ...     # or a vocal.wav + acc.wav pair
+  python backstage/validate_lead.py <song> ...     # or a vocal.wav + acc.wav pair
 """
 from __future__ import annotations
 import sys

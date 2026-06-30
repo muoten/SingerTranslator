@@ -9,8 +9,8 @@ is mostly voiced):
   NOISE       sung note with f0-voiced fraction < F0_FRAC    -> breath/bleed, not sung
 
 Usage:
-  python scripts/validate_grid.py                # all songs (assets/*/chorus_target.json)
-  python scripts/validate_grid.py <song> ...     # specific songs
+  python backstage/validate_grid.py                # all songs (assets/*/chorus_target.json)
+  python backstage/validate_grid.py <song> ...     # specific songs
 """
 from __future__ import annotations
 import json, sys

@@ -19,11 +19,11 @@ Score one take or a whole seed sweep (glob); ranks by a combined score.
 
 Usage:
     # score a folder of seed renders against the BJ grid + prompt
-    python scripts/score_melody_timbre.py --song billie_jean \
+    python backstage/score_melody_timbre.py --song billie_jean \
         --takes 'assets/billie_jean/cache/*.wav'
 
     # explicit grid + reference voice
-    python scripts/score_melody_timbre.py \
+    python backstage/score_melody_timbre.py \
         --grid assets/thriller/chorus_target.json \
         --ref  assets/thriller/prompt.wav \
         --takes /tmp/singer_renders/seed_*.wav --json out.json
