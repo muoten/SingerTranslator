@@ -38,12 +38,12 @@ PREREQUISITES (see feedback_soulx_preproc_macos_gotchas):
   - run long stages directly (not nohup&); WHISPER_INITIAL_PROMPT carries the lyric
 
 Usage:
-  python build_song.py --song bad --only fetch       # download+validate the source by title
-  python build_song.py --song bad --window 60.0:76.0 \\
+  python build/build_song.py --song bad --only fetch       # download+validate the source by title
+  python build/build_song.py --song bad --window 60.0:76.0 \\
       --lyrics "<true chorus lyric, ALIGNMENT ONLY>" --device cpu   # fetch->...->register
-  python build_song.py --song bad --title "Michael Jackson Bad official audio" --only fetch
-  python build_song.py --song bad --only order       # re-propose the ORDER
-  python build_song.py --song bad --from grid        # resume from a stage
+  python build/build_song.py --song bad --title "Michael Jackson Bad official audio" --only fetch
+  python build/build_song.py --song bad --only order       # re-propose the ORDER
+  python build/build_song.py --song bad --from grid        # resume from a stage
 """
 from __future__ import annotations
 import argparse
@@ -53,7 +53,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent.resolve()
+ROOT = Path(__file__).resolve().parents[1]   # repo root (this file lives in build/)
 sys.path.insert(0, str(ROOT))
 import singer  # noqa: E402  (asset paths + song_config defaults)
 
@@ -198,7 +198,7 @@ def stage_preproc(song, args):
     py = str(soulx_py) if soulx_py.exists() else sys.executable
     # SoulX preproc loads its f0/ROSVOT weights via paths RELATIVE to SOULX_ROOT,
     # so the subprocess must run from there (audio_path/save_dir are absolute).
-    _run([py, str(ROOT / "run_preproc_with_whisper.py"),
+    _run([py, str(ROOT / "build" / "run_preproc_with_whisper.py"),
           "--audio_path", str(voc.resolve()), "--save_dir", str(save.resolve()),
           "--language", args.language, "--device", args.device,
           "--vocal_sep", args.lead_sep, "--midi_transcribe", "True"],

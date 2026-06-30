@@ -45,3 +45,9 @@ muq_progress.json
 
 # Model weights
 checkpoints/
+
+# session scratch / analysis output
+_crappy/
+_scat/
+_verify_neutral/
+_prebake.py
