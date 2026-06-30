@@ -220,6 +220,17 @@ HEAL_THE_WORLD_ORDER = [
     ("R", 20),
 ]
 
+# Rock With You — auto de-inflation, phrases renumbered contiguous (1,2,3; counts 3/2/3).
+# Window 105.20-118.82s via find_window (phrase+beat snapped). Lead borderline (63%).
+ROCK_WITH_YOU_ORDER = [
+    ("R", 0), ("w", "la", [1], 1), ("w", "la", [2], 1), ("w", "la", [3], 1),
+    ("R", 4), ("R", 5), ("R", 6), ("R", 7),
+    ("w", "la", [8], 2), ("w", "la", [9], 2),
+    ("R", 10), ("R", 11), ("R", 12), ("R", 13), ("R", 14), ("R", 15),
+    ("w", "la", [16], 3), ("w", "la", [17], 3), ("R", 18), ("R", 19), ("w", "la", [20], 3),
+    ("R", 21), ("R", 22), ("R", 23), ("R", 24),
+]
+
 ORDERS = {
     "thriller": THRILLER_ORDER,
     "billie_jean": BILLIE_JEAN_ORDER,
@@ -229,6 +240,7 @@ ORDERS = {
     "the_way_you_make_me_feel": THE_WAY_YOU_MAKE_ME_FEEL_ORDER,
     "black_or_white": BLACK_OR_WHITE_ORDER,
     "heal_the_world": HEAL_THE_WORLD_ORDER,
+    "rock_with_you": ROCK_WITH_YOU_ORDER,
 }
 
 DEMOS = {
@@ -283,6 +295,12 @@ DEMOS = {
     "heal_the_world": [
         "day by",
         "take me to the top with you and we go now home",
+    ],
+    # Placeholder monosyllabic lyric matching the 3/2/3 slot counts.
+    "rock_with_you": [
+        "day by day",
+        "we go",
+        "take me home",
     ],
 }
 

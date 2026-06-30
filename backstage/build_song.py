@@ -160,10 +160,25 @@ def stage_separate(song, args):
 
 
 def stage_slice(song, args):
-    """Cut the chorus WINDOW from vocals + accompaniment into sources/<song>/."""
-    if not args.window:
-        raise SystemExit("stage 'slice' needs --window START:END (the chorus instance)")
-    a, b = (float(x) for x in args.window.split(":"))
+    """Cut the chorus WINDOW from vocals + accompaniment into sources/<song>/.
+
+    Give --window START:END explicitly, or --near T (a time inside the chorus) and
+    find_window snaps a phrase+beat-aligned window for you (it won't cut a word or a
+    beat). The snapped window is printed; EAR-CONFIRM it (or override with --window)."""
+    if args.window:
+        a, b = (float(x) for x in args.window.split(":"))
+    elif args.near is not None:
+        sys.path.insert(0, str(ROOT / "backstage"))
+        import find_window as fw
+        r = fw.propose(song, args.near)
+        if not r:
+            raise SystemExit(f"find_window found no sung phrase after --near {args.near}")
+        a, b = r["start"], r["end"]
+        print(f"  find_window: --near {args.near} -> WINDOW {a:.2f}:{b:.2f} "
+              f"({b-a:.2f}s, {r['n_phrases']} phrases, {r['beats_in']} beats) "
+              f">>> EAR-CONFIRM or pass --window to override")
+    else:
+        raise SystemExit("stage 'slice' needs --window START:END or --near T (a time in the chorus)")
     sep = sources_dir(song) / "_sep"
     voc_full = next(sep.glob("**/vocals.wav"), None)
     acc_full = next(sep.glob("**/no_vocals.wav"), None)
@@ -379,6 +394,7 @@ def main():
     ap.add_argument("--title", help="search query for stage 'fetch' (default: 'Michael Jackson <Label> official audio')")
     ap.add_argument("--source", help="full-track wav override (else sources/<song>/<song>_full.wav)")
     ap.add_argument("--window", help="chorus window START:END in seconds, e.g. 60.0:76.0")
+    ap.add_argument("--near", type=float, help="stage 'slice': a time inside the chorus; find_window snaps a phrase+beat-aligned window")
     ap.add_argument("--lyrics", default="", help="true chorus lyric — ALIGNMENT ONLY (Whisper initial_prompt)")
     ap.add_argument("--language", default="English")
     ap.add_argument("--device", default="cpu")

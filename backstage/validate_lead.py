@@ -11,8 +11,9 @@ surrounded the lead. Solo lead -> low; unison choir -> high. Activity-gated; als
 localizes the worst window.
 
 Requires preproc run with --vocal_sep True (so acc.wav exists). Threshold is
-PROVISIONAL (calibrated on n=2: BoW solo-lead 28%, Heal-the-World choral 73%);
-ADVISORY only — it warns, it does not auto-hide. Refine as more songs build.
+PROVISIONAL (calibrated n=3: BoW solo-lead 28%, Rock With You 63% acceptable-by-ear
+borderline, Heal-the-World 73% genuinely choral); ADVISORY only — it warns at preproc
+and (combined with the scat gate) gates demo at bake. Refine as more songs build.
 
   python backstage/validate_lead.py <song> ...     # or a vocal.wav + acc.wav pair
 """
@@ -22,7 +23,7 @@ from pathlib import Path
 import numpy as np, soundfile as sf
 
 ROOT = Path(__file__).resolve().parents[1]
-CHORAL = 0.50      # backing/total >= this = likely choral (provisional)
+CHORAL = 0.68      # backing/total >= this = likely choral (n=3: 28 solo, 63 ok, 73 choral)
 WIN = 2.0
 HOP = 0.05
 

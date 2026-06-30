@@ -74,6 +74,11 @@ def evaluate(song, vocal_path=None):
     for i in range(n):
         loud = rms[i] > LOUD * gv
         if not voiced[i]:
+            # PHANTOM = loud during a grid rest. NOTE: this over-flags songs that fill a
+            # sparse grid with acceptable VOICED sustain (Rock With You, 9.45s yet sounds
+            # fine). A voiced-fraction refinement to exclude sustains was tried (PH_VFRAC
+            # 0.80/0.90) and REJECTED: BoW/SC's bad bleed is voiced at a similar level, so
+            # any threshold that clears RWY also clears them. Treat RWY as a manual override.
             if loud:
                 crappy[i] = True; reason[i] = "phantom"
         else:

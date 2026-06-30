@@ -13,7 +13,8 @@ ships with the repo. Songs are added through one standardized, resumable pipelin
 ```
 fetch     yt-dlp by title  → sources/<song>/<song>_full.wav  (+ validates length)
 separate  Demucs → vocals / accompaniment
-slice     cut the chosen chorus WINDOW (an ear-judgment)
+slice     cut the chorus WINDOW. Give --window START:END, or --near T and
+          find_window snaps a phrase+beat-aligned window (won't cut a word/beat)
 preproc   mel-band-roformer KARAOKE → isolate MJ lead (drop backing choir),
           then Whisper align + f0 + ROSVOT notes  → grid
 grid      preproc output → chorus_target.json
@@ -102,6 +103,7 @@ were all tried and **rejected** — they don't track perceived quality.
 │       └── cache/                     — rendered covers (incl. pre-baked defaults)
 ├── backstage/                   — all offline song-building code (not loaded by the app)
 │   ├── build_song.py                  — add a song: fetch→…→register (resumable stages)
+│   ├── find_window.py                 — propose a phrase+beat-snapped chorus window
 │   ├── run_preproc_with_whisper.py    — SoulX preprocess wrapper (karaoke+Whisper+ROSVOT)
 │   ├── bake_song.py                   — seed-best render + auto quality gates
 │   ├── crappy_fragments.py            — scat gate (grid-mismatch duration)
