@@ -30,7 +30,7 @@ EAR-JUDGMENT (the irreducible craft — you supply / confirm these):
   - VERIFY    neutral-'la' render: clean on-melody 'la' = PASS; original words = leak
   - ORDER     which slots voice cleanly vs rest (stage 9 proposes, you confirm)
   - ALIGNMENT spot-check Whisper transcript vs the true lyric (printed in stage 3)
-  - SEED      picked later at bake time (scripts/bake_*), not here
+  - SEED      picked later at bake time (backstage/bake_*), not here
 
 PREREQUISITES (see feedback_soulx_preproc_macos_gotchas):
   - demucs installed (its own venv); run setup_rosvot_macos.sh after every reboot
@@ -38,12 +38,12 @@ PREREQUISITES (see feedback_soulx_preproc_macos_gotchas):
   - run long stages directly (not nohup&); WHISPER_INITIAL_PROMPT carries the lyric
 
 Usage:
-  python build/build_song.py --song bad --only fetch       # download+validate the source by title
-  python build/build_song.py --song bad --window 60.0:76.0 \\
+  python backstage/build_song.py --song bad --only fetch       # download+validate the source by title
+  python backstage/build_song.py --song bad --window 60.0:76.0 \\
       --lyrics "<true chorus lyric, ALIGNMENT ONLY>" --device cpu   # fetch->...->register
-  python build/build_song.py --song bad --title "Michael Jackson Bad official audio" --only fetch
-  python build/build_song.py --song bad --only order       # re-propose the ORDER
-  python build/build_song.py --song bad --from grid        # resume from a stage
+  python backstage/build_song.py --song bad --title "Michael Jackson Bad official audio" --only fetch
+  python backstage/build_song.py --song bad --only order       # re-propose the ORDER
+  python backstage/build_song.py --song bad --from grid        # resume from a stage
 """
 from __future__ import annotations
 import argparse
@@ -198,7 +198,7 @@ def stage_preproc(song, args):
     py = str(soulx_py) if soulx_py.exists() else sys.executable
     # SoulX preproc loads its f0/ROSVOT weights via paths RELATIVE to SOULX_ROOT,
     # so the subprocess must run from there (audio_path/save_dir are absolute).
-    _run([py, str(ROOT / "build" / "run_preproc_with_whisper.py"),
+    _run([py, str(ROOT / "backstage" / "run_preproc_with_whisper.py"),
           "--audio_path", str(voc.resolve()), "--save_dir", str(save.resolve()),
           "--language", args.language, "--device", args.device,
           "--vocal_sep", args.lead_sep, "--midi_transcribe", "True"],
@@ -206,9 +206,9 @@ def stage_preproc(song, args):
     print("  >>> EAR-CHECK: compare the printed Whisper text above against your lyric.")
     # Advisory solo-vs-chorus flag: if the karaoke lead is mostly surrounded by other
     # vocal energy, the chorus is choral (unison choir) -> uncleanable -> expect a bad
-    # render. Warn now, before the render/bake (scripts/validate_lead.py).
+    # render. Warn now, before the render/bake (backstage/validate_lead.py).
     try:
-        sys.path.insert(0, str(ROOT / "scripts"))
+        sys.path.insert(0, str(ROOT / "backstage"))
         import validate_lead as vl
         r = vl.evaluate(song)
         if r:
@@ -334,13 +334,13 @@ def stage_verify(song, args):
     use the real lyrics here: they trip copyright AND can't distinguish correct
     synthesis from prompt leakage (both produce the original words). With 'la',
     any original words you hear are unambiguously leakage -> swap to a verse
-    (anti-leakage) prompt and re-run. See scripts/verify_neutral.py.
+    (anti-leakage) prompt and re-run. See backstage/verify_neutral.py.
     """
     mix = ROOT / "_verify_neutral" / song / f"{song}_neutral_mix.wav"
     if mix.exists() and not args.force:
         print(f"  [skip] neutral check exists: {mix}"); return
     env = dict(os.environ); env["SINGER_DEVICE"] = args.device
-    _run([sys.executable, str(ROOT / "scripts" / "verify_neutral.py"),
+    _run([sys.executable, str(ROOT / "backstage" / "verify_neutral.py"),
           "--song", song], env=env)
     print(f"  >>> EAR-CHECK: PASS = clean on-melody 'la la la' in the song's voice; "
           f"FAIL = original words bleed (prompt leaks). {mix}")

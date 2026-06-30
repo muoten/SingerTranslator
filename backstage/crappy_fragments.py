@@ -8,8 +8,8 @@ vocal vs the built target:
 Contiguous crappy bins (small gaps bridged) form a crappy fragment. We report the
 LONGEST per song + the list — the localized, ear-matching defect everything else missed.
 
-  python scripts/crappy_fragments.py            # all baked songs
-  python scripts/crappy_fragments.py <song> ...
+  python backstage/crappy_fragments.py            # all baked songs
+  python backstage/crappy_fragments.py <song> ...
 """
 from __future__ import annotations
 import json, sys

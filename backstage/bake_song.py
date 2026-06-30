@@ -10,7 +10,7 @@ A baked song is NOT necessarily a demo song: visibility is the config 'demo' fla
 ([[project_neutral_verify_and_demo_flag]]). Baking a hidden song archives it.
 
 Usage:
-  SINGER_DEVICE=cpu vendor/SoulX-Singer/venv/bin/python scripts/bake_song.py \
+  SINGER_DEVICE=cpu vendor/SoulX-Singer/venv/bin/python backstage/bake_song.py \
       --song smooth_criminal > sources/smooth_criminal/bake.log 2>&1 &
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np, soundfile as sf
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "backstage"))
 import soulx_freelyrics as fl
 import singer
 import score_melody_timbre as sb   # timbre_sim: song-agnostic WavLM-SV cosine vs prompt

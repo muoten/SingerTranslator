@@ -34,11 +34,11 @@ render is poor. That case is flagged automatically (see *Quality gates*).
 
 ### Adding a song, end to end
 
-1. `python build/build_song.py --song <key>` — runs `fetch → … → register`, pausing at
+1. `python backstage/build_song.py --song <key>` — runs `fetch → … → register`, pausing at
    the ear-judgments (pick the chorus `--window`, confirm the neutral-`la`
    verify, confirm the `order`).
 2. Paste the printed `ORDERS` / `DEMOS` snippet into `soulx_freelyrics.py`.
-3. `python scripts/bake_song.py --song <key>` — renders several seeds, keeps the
+3. `python backstage/bake_song.py --song <key>` — renders several seeds, keeps the
    best by timbre, mixes, caches the cover, and runs the **quality gates**.
 4. A song appears in the demo only when it is registered **and**
    `assets/<song>/config.json` has `"demo": true`. New songs default to hidden,
@@ -58,16 +58,16 @@ unless a song ships its own `assets/<song>/prompt.wav` override.
 Whether a baked cover is good enough for the public demo is decided by two
 automatic, complementary checks — a render is demo-eligible only if **both** pass:
 
-- **scat gate** (`scripts/crappy_fragments.py`) — measures the total duration of
+- **scat gate** (`backstage/crappy_fragments.py`) — measures the total duration of
   *grid-mismatched* audio: sound during a rest (PHANTOM), wrong pitch on a note
   (OFFPITCH), or silence on a note (DEAD). `total_crappy < 5.0s` = pass. This
   catches a render that fails to track an otherwise-good grid.
-- **solo-vs-chorus gate** (`scripts/validate_lead.py`) — measures how much
+- **solo-vs-chorus gate** (`backstage/validate_lead.py`) — measures how much
   *other-vocal* energy surrounded the isolated lead (from the karaoke step's
   removed-backing output). A high ratio means the chorus is choral (lead in
   unison with a choir) → the grid itself is corrupt → the scat gate can't see it.
 
-The bake (`scripts/bake_song.py`) runs both, auto-sets `demo: false` on failure,
+The bake (`backstage/bake_song.py`) runs both, auto-sets `demo: false` on failure,
 and only *recommends* `demo: true` (publishing is a human confirm).
 Phoneme-recognition metrics (per-slot, recall/precision/F1, Whisper, timbre-sim)
 were all tried and **rejected** — they don't track perceived quality.
@@ -92,10 +92,6 @@ were all tried and **rejected** — they don't track perceived quality.
 ├── soulx_freelyrics.py          — per-song engine: word→slot mapping (ORDERS/DEMOS)
 ├── singer.py                    — soulx_render(), g2p, mixing, prompt fallback, config
 ├── bootstrap_soulx.py           — downloads weights + NLTK on first run
-├── build/                       — offline authoring (not loaded by the app)
-│   ├── build_song.py                  — add a song: fetch→…→register (resumable stages)
-│   ├── run_preproc_with_whisper.py    — SoulX preprocess wrapper (karaoke+Whisper+ROSVOT)
-│   └── split_word.py, swap_word.py    — per-slot word editing helpers
 ├── assets/
 │   ├── _shared/mj_prompt.{wav,json}   — canonical MJ timbre prompt (shared by all)
 │   └── <song>/                        — thriller, billie_jean, beat_it, bad, …
@@ -104,10 +100,13 @@ were all tried and **rejected** — they don't track perceived quality.
 │       ├── config.json                — per-song knobs incl. the "demo" flag
 │       ├── prompt.{wav,json}          — OPTIONAL per-song timbre-prompt override
 │       └── cache/                     — rendered covers (incl. pre-baked defaults)
-├── scripts/                     — build/bake/gate + eval tooling (not needed to run app)
+├── backstage/                   — all offline song-building code (not loaded by the app)
+│   ├── build_song.py                  — add a song: fetch→…→register (resumable stages)
+│   ├── run_preproc_with_whisper.py    — SoulX preprocess wrapper (karaoke+Whisper+ROSVOT)
 │   ├── bake_song.py                   — seed-best render + auto quality gates
 │   ├── crappy_fragments.py            — scat gate (grid-mismatch duration)
 │   ├── validate_lead.py               — solo-vs-chorus gate
+│   ├── split_word.py, swap_word.py    — per-slot word editing helpers
 │   └── verify_neutral.py, validate_grid.py, …  — other checks & eval
 └── vendor/SoulX-Singer/         — submodule: muoten fork with --n_steps + --seed
 ```

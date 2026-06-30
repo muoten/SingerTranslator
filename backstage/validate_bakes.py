@@ -3,7 +3,7 @@ top of its pool. Flags any bake that has slipped >15% behind the new top.
 
 Run this after EVERY metric change to catch silent regressions:
 
-    python scripts/validate_bakes.py
+    python backstage/validate_bakes.py
 
 Exit code 0 if all bakes pass. Non-zero if any bake fails the 0.85 ratio.
 Output is a table — keep the bake or re-evaluate.

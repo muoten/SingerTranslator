@@ -16,7 +16,7 @@ EAR VERDICT:
            anti-leakage (verse) prompt and re-run.
 
 Usage:
-  SINGER_DEVICE=cpu python scripts/verify_neutral.py --song smooth_criminal [--play]
+  SINGER_DEVICE=cpu python backstage/verify_neutral.py --song smooth_criminal [--play]
 """
 from __future__ import annotations
 import argparse, json, sys

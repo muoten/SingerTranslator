@@ -57,6 +57,8 @@ ENGLISH_EQUIV = {
     "aʊ": {"aʊ", "au", "ɑʊ"},
     "eɪ": {"eɪ", "e", "ei", "eː"},
     "ɛ":  {"ɛ", "e", "ɪ"}, "ɪ":  {"ɪ", "i"},
+    "ʌ":  {"ʌ", "ɑ", "a"},   # singers flatten ʌ → open back (2026-05-31: validated on summer_time_is W3)
+    "z":  {"z", "s"},          # voiced sibilant devoices mid-phrase in singing
     "ɹ":  {"ɹ", "r", "ɾ"},
     # /ɝ/ stays strict-rhotic. Earlier we accepted /ə/ and /ʌ/ for sung
     # de-rhoticization, but it caused phantom "birth" matches on bare
@@ -171,6 +173,8 @@ SPANISH_SYLLABLES = {
     # hola laura
     "lau": ["l", "a", "w"],
     "ra":  ["ɾ", "a"],
+    "ni":  ["n", "i"],
+    "to":  ["t", "o"],
     # dias buenos = reuse di, as, bue, nos
     # llueve mucho
     "mu":  ["m", "u"],
@@ -339,15 +343,15 @@ def find_sequence(hyp, target, start_pos, equiv, k=K_SKIP):
     return -1, 0
 
 
-def find_syllable(hyp, syl_name, target, start_pos, lang_cfg):
-    r, cons = find_sequence(hyp, target, start_pos, lang_cfg["EQUIV"])
+def find_syllable(hyp, syl_name, target, start_pos, lang_cfg, k_skip=K_SKIP):
+    r, cons = find_sequence(hyp, target, start_pos, lang_cfg["EQUIV"], k=k_skip)
     if r != -1: return r, cons
     # Try per-syllable alternative targets (e.g. cho → [tʃ, a]).
     for alt in lang_cfg.get("ALTERNATIVES", {}).get(syl_name.lower(), []):
-        r, cons = find_sequence(hyp, alt, start_pos, lang_cfg["EQUIV"])
+        r, cons = find_sequence(hyp, alt, start_pos, lang_cfg["EQUIV"], k=k_skip)
         if r != -1: return r, cons
     if syl_name.lower() in lang_cfg["OPTIONAL_PREFIX"] and len(target) > 1:
-        return find_sequence(hyp, target[1:], start_pos, lang_cfg["EQUIV"])
+        return find_sequence(hyp, target[1:], start_pos, lang_cfg["EQUIV"], k=k_skip)
     return -1, 0
 
 
@@ -376,7 +380,7 @@ def expected_syllables_for_window(slots, w_start, w_end, lang):
     return out
 
 
-def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
+def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count, k_skip=K_SKIP):
     """Unique-type-count recall — counts distinct syllable types matched.
 
     Returns (unique_types_matched, phrase_unique_count, good_tokens, names).
@@ -403,7 +407,7 @@ def syllable_completion(hyp, expected_list, lang_cfg, phrase_unique_count):
     for name, target in targets:
         pos = 0
         while pos < len(hyp):
-            nxt, cons = find_syllable(hyp, name, target, pos, lang_cfg)
+            nxt, cons = find_syllable(hyp, name, target, pos, lang_cfg, k_skip=k_skip)
             if nxt == -1:
                 break
             matched_types.add(name)
@@ -552,7 +556,7 @@ def iter_pool_for_phrase(phrase: str, downloads_dir: Path,
             yield downloads_dir / wav_name, thr
 
 
-def score(proc, mdl, wav, slots, lang, phrase_unique_count):
+def score(proc, mdl, wav, slots, lang, phrase_unique_count, k_skip=K_SKIP):
     cfg = LANG_CONFIGS[lang]
     wav_path = Path(wav)
     cached = _load_cached(wav_path)
@@ -574,7 +578,7 @@ def score(proc, mdl, wav, slots, lang, phrase_unique_count):
         ws, we = w * win_len, (w + 1) * win_len
         hyp = hyp_per_w[w]
         exp_sylls = expected_syllables_for_window(slots, ws, we, lang)
-        found, total, consumed, names = syllable_completion(hyp, exp_sylls, cfg, phrase_unique_count)
+        found, total, consumed, names = syllable_completion(hyp, exp_sylls, cfg, phrase_unique_count, k_skip=k_skip)
         # syllable_coverage: unique phrase-syllable types detected in window
         # divided by phrase unique syllable count (=4). NOT classical recall:
         # the denominator is the phrase's type inventory, not the number of

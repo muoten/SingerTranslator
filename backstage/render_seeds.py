@@ -19,11 +19,12 @@ sweeps don't overwrite each other:
     aichael_<syllables>_HYPOTHESIS_thr<NNN>_seed<NNN>.wav
 
 Usage:
-    python scripts/render_seeds.py THR SYL1 SYL2 SYL3 SYL4 SEED1 SEED2 ...
+    python backstage/render_seeds.py THR SYL1 SYL2 SYL3 SYL4 SEED1 SEED2 ...
 Example:
-    python scripts/render_seeds.py 0.40 llue ve mu cho 0 1 2 3
+    python backstage/render_seeds.py 0.40 llue ve mu cho 0 1 2 3
 """
 from __future__ import annotations
+import os
 import shutil
 import sys
 import contextlib
@@ -67,6 +68,44 @@ def baked_aside(key: str):
             parked.rename(baked)
 
 
+def score_and_report(vocals, song):
+    """Rank the swept seeds by melody-following (F0-CORR) + timbre (SIM).
+
+    This is an ADDITIONAL axis, not a replacement for the perceived
+    (intelligibility) metric — a seed can follow the melody yet be mumbled.
+    Cross-check against perceived before baking. Disable with RENDER_SEEDS_SCORE=0;
+    SCORE_CREPE=full for a slower/accurate pass (default 'tiny').
+    """
+    if os.environ.get("RENDER_SEEDS_SCORE", "1") == "0" or not vocals:
+        return
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import score_melody_timbre as smt
+        grid = str(singer.template_json(song))
+        ref = str(singer.prompt_wav(song))
+        model = os.environ.get("SCORE_CREPE", "tiny")
+        print(f"\n=== melody+timbre scoring (F0-CORR / SIM, crepe={model}) ===", flush=True)
+        target = smt.grid_target_midi(grid)
+        ref_emb = smt.xvector(ref)
+        rows = []
+        for seed, vp in vocals:
+            fc = smt.f0_corr(smt.take_f0_midi(str(vp), model=model), target)
+            s = smt.sim(str(vp), ref_emb)
+            comb = 0.6 * max(fc["corr"], 0.0) + 0.4 * max(s, 0.0)
+            rows.append((comb, seed, fc["corr"], s, fc["semi_rmse"], fc["voiced_overlap"]))
+        rows.sort(reverse=True)
+        print(f"{'seed':>5} {'COMB':>6} {'F0-CORR':>8} {'SIM':>6} {'semiRMSE':>9} {'cover':>6}")
+        print("-" * 50)
+        for comb, seed, corr, s, rmse, cov in rows:
+            flag = "  <- low SIM (timbre drift)" if s < 0.75 else ""
+            print(f"{seed:>5} {comb:6.3f} {corr:8.3f} {s:6.3f} {rmse:9.2f} {cov * 100:5.0f}%{flag}")
+        b = rows[0]
+        print(f"\nBEST melody+timbre: seed {b[1]}  (F0-CORR={b[2]:.3f}, SIM={b[3]:.3f})")
+        print("NOTE: melody+timbre only — cross-check perceived (intelligibility) before baking.")
+    except Exception as e:  # noqa: BLE001 — never let scoring lose the renders
+        print(f"[score] skipped (scoring failed: {e})")
+
+
 def main():
     args = sys.argv[1:]
     if len(args) < 6:
@@ -81,6 +120,7 @@ def main():
     key = singer._cache_key(syllables, N_STEPS, "default")  # type: ignore[attr-defined]
     print(f"Cache key: {key}  syllables={syllables}  thr={thr}")
 
+    vocals = []
     with baked_aside(key):
         for seed in seeds:
             clear_runtime_cache(key)
@@ -89,6 +129,15 @@ def main():
             dst = Path(f"/Users/milhouse/Downloads/aichael_{phrase_tag}_HYPOTHESIS_{thr_tag}_seed{seed}.wav")
             shutil.copy(wav, dst)
             print(f"  → {dst}")
+            # Also save the dry vocal stem (pre-mix) for melody/timbre scoring.
+            voc_src = singer.WORK / SONG / key / "vocal" / "generated.wav"
+            if voc_src.exists():
+                voc_dst = dst.with_name(dst.stem + "_VOCAL.wav")
+                shutil.copy(voc_src, voc_dst)
+                vocals.append((seed, voc_dst))
+                print(f"  → {voc_dst}")
+
+    score_and_report(vocals, SONG)
 
 
 if __name__ == "__main__":
