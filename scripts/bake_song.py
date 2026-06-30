@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
 import soulx_freelyrics as fl
 import singer
-import score_beat_it as sb   # timbre_sim is song-agnostic (WavLM-SV cosine vs prompt)
+import score_melody_timbre as sb   # timbre_sim: song-agnostic WavLM-SV cosine vs prompt
 
 
 def log(m): print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
