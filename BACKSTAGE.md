@@ -34,7 +34,7 @@ render is poor. That case is flagged automatically (see *Quality gates*).
 
 ### Adding a song, end to end
 
-1. `python build_song.py --song <key>` — runs `fetch → … → register`, pausing at
+1. `python build/build_song.py --song <key>` — runs `fetch → … → register`, pausing at
    the ear-judgments (pick the chorus `--window`, confirm the neutral-`la`
    verify, confirm the `order`).
 2. Paste the printed `ORDERS` / `DEMOS` snippet into `soulx_freelyrics.py`.
@@ -91,8 +91,11 @@ were all tried and **rejected** — they don't track perceived quality.
 ├── soulx_freelyrics_demo.py     — Gradio UI (song picker, lyric box, render+cache)
 ├── soulx_freelyrics.py          — per-song engine: word→slot mapping (ORDERS/DEMOS)
 ├── singer.py                    — soulx_render(), g2p, mixing, prompt fallback, config
-├── build_song.py                — add a song: fetch→…→register (resumable stages)
 ├── bootstrap_soulx.py           — downloads weights + NLTK on first run
+├── build/                       — offline authoring (not loaded by the app)
+│   ├── build_song.py                  — add a song: fetch→…→register (resumable stages)
+│   ├── run_preproc_with_whisper.py    — SoulX preprocess wrapper (karaoke+Whisper+ROSVOT)
+│   └── split_word.py, swap_word.py    — per-slot word editing helpers
 ├── assets/
 │   ├── _shared/mj_prompt.{wav,json}   — canonical MJ timbre prompt (shared by all)
 │   └── <song>/                        — thriller, billie_jean, beat_it, bad, …
