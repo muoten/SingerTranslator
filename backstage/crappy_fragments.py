@@ -46,10 +46,15 @@ def grid_arrays(song, dur, n):
     return voiced[:n], ipitch[:n], interior[:n]
 
 
-# Demo-eligibility gate: total grid-mismatched ("crappy") audio. Calibrated on the
-# first 7 songs — every accepted song < 5.0s, both hidden/rejected >= 5.0s (gap
-# 4.4 -> 5.6). Revisit the threshold as the catalog grows.
-GATE_S = 5.0
+# Demo-eligibility gate: PHANTOM seconds only (loud bleed/scat during a grid rest).
+# Calibrated on 9 songs by ear: phantom is the only "crappy" mode that sounds bad.
+# DEAD (silence on a note) and OFFPITCH are both benign — `bad` is accepted with 3.65s
+# dead, `billie_jean` with 2.9s offpitch, yet both sound fine; smooth_criminal's 4.0s
+# of phantom bleed sounds like garbage. So we gate on phantom alone (dead/offpitch are
+# still detected + reported as diagnostics, just not counted). Every accepted song has
+# phantom < 3.5s (max the_way… 3.05); both rejected sit above (SC 4.00, BoW 4.10). RWY
+# (6.05s of acceptable sparse-grid sustain) stays a manual override. Revisit as catalog grows.
+GATE_S = 3.5
 
 
 def evaluate(song, vocal_path=None):
@@ -107,9 +112,11 @@ def evaluate(song, vocal_path=None):
         else:
             i += 1
     total = round(sum(f[2] for f in frags), 2)
+    phantom = round(sum(f[2] for f in frags if f[3] == "phantom"), 2)
     longest = max((f[2] for f in frags), default=0.0)
-    return {"longest": longest, "total": total, "n_frags": len(frags),
-            "frags": frags, "verdict": "ENABLE" if total < GATE_S else "HIDE"}
+    # Gate on PHANTOM only; dead/offpitch retained in `frags`/`total` for diagnostics.
+    return {"longest": longest, "total": total, "phantom": phantom, "n_frags": len(frags),
+            "frags": frags, "verdict": "ENABLE" if phantom < GATE_S else "HIDE"}
 
 
 def main():

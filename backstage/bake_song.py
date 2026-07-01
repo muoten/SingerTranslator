@@ -115,7 +115,8 @@ def main():
     r = cf.evaluate(SONG, cdir / f"fl_{key}_vocal.wav")
     lead = vl.evaluate(SONG)
     if r:
-        log(f"SCAT-GATE {SONG}: total_crappy={r['total']:.2f}s (gate {cf.GATE_S}s) -> {r['verdict']}")
+        log(f"SCAT-GATE {SONG}: phantom={r['phantom']:.2f}s (gate {cf.GATE_S}s; "
+            f"dead/offpitch ungated, total_crappy={r['total']:.2f}s) -> {r['verdict']}")
         if lead:
             log(f"LEAD-GATE {SONG}: backing/total={lead['backing_ratio']*100:.0f}% -> {lead['verdict']}")
         else:
@@ -127,7 +128,7 @@ def main():
         if scat_ok and lead_ok:
             log(f"  -> RECOMMEND demo=true (confirm before publishing): set \"demo\": true in {cfgp}")
         else:
-            why = ([] if scat_ok else [f"scat {r['total']:.1f}s"]) + ([] if lead_ok else ["choral lead"])
+            why = ([] if scat_ok else [f"phantom {r['phantom']:.1f}s"]) + ([] if lead_ok else ["choral lead"])
             if conf.get("demo"):
                 conf["demo"] = False; cfgp.write_text(json.dumps(conf, indent=2))
                 log(f"  -> set demo=false ({', '.join(why)})")
